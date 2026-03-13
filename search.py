@@ -1,172 +1,127 @@
+"""
+Search module: keyword, semantic (pgvector), hybrid
+"""
 import os
+from typing import Optional
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-from openai import AsyncOpenAI
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_KEY = os.environ.get("OPENAI_API_KEY", "")
 
-openai_client = None
-
-
-def get_openai_client():
-    global openai_client
-    if openai_client is None and OPENAI_API_KEY:
-        openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
-    return openai_client
-
-
-async def get_embedding(text_input: str) -> list[float] | None:
-    """Get embedding from OpenAI text-embedding-3-small."""
-    client = get_openai_client()
-    if not client:
+async def embed_text(text_input: str) -> Optional[list]:
+    if not OPENAI_KEY or not text_input.strip():
         return None
     try:
-        response = await client.embeddings.create(
+        import openai
+        client = openai.AsyncOpenAI(api_key=OPENAI_KEY)
+        resp = await client.embeddings.create(
             model="text-embedding-3-small",
-            input=text_input
+            input=text_input[:8000]
         )
-        return response.data[0].embedding
-    except Exception:
+        return resp.data[0].embedding
+    except Exception as e:
+        print(f"Embed error: {e}")
         return None
 
-
-async def fulltext_search_documents(db: AsyncSession, query: str, filters: dict, limit: int = 50, offset: int = 0):
-    """Full-text search on documents table."""
-    conditions = []
-    params = {"limit": limit, "offset": offset}
-
-    if query:
-        conditions.append(
-            "to_tsvector('simple', so_hieu || ' ' || ten || ' ' || COALESCE(tom_tat,'') || ' ' || COALESCE(noi_dung,'')) "
-            "@@ plainto_tsquery('simple', :query)"
-        )
-        params["query"] = query
-
+def build_filters(filters: dict) -> tuple:
+    where = []
+    params = {}
+    if filters.get("sac_thue"):
+        where.append(":sac_thue = ANY(sac_thue)")
+        params["sac_thue"] = filters["sac_thue"]
     if filters.get("loai"):
-        conditions.append("loai = :loai")
+        where.append("loai = :loai")
         params["loai"] = filters["loai"]
-
-    if filters.get("sac_thue"):
-        conditions.append(":sac_thue = ANY(sac_thue)")
-        params["sac_thue"] = filters["sac_thue"]
-
+    if filters.get("year_from"):
+        where.append("EXTRACT(YEAR FROM ngay_ban_hanh) >= :year_from")
+        params["year_from"] = filters["year_from"]
+    if filters.get("year_to"):
+        where.append("EXTRACT(YEAR FROM ngay_ban_hanh) <= :year_to")
+        params["year_to"] = filters["year_to"]
     if filters.get("tinh_trang"):
-        if filters["tinh_trang"] == "con_hieu_luc":
-            conditions.append("tinh_trang ILIKE '%còn hiệu lực%'")
-        elif filters["tinh_trang"] == "het_hieu_luc":
-            conditions.append("tinh_trang ILIKE '%hết hiệu lực%'")
+        where.append("tinh_trang = :tinh_trang")
+        params["tinh_trang"] = filters["tinh_trang"]
+    clause = ("WHERE " + " AND ".join(where)) if where else ""
+    return clause, params
 
-    if filters.get("year"):
-        conditions.append("EXTRACT(YEAR FROM ngay_ban_hanh) = :year")
-        params["year"] = int(filters["year"])
+async def search_keyword(db: AsyncSession, q: str, filters: dict, limit: int, offset: int):
+    where, params = build_filters(filters)
+    if q:
+        tsq_clause = "to_tsvector('simple', coalesce(so_hieu,'') || ' ' || coalesce(ten,'') || ' ' || coalesce(tom_tat,'')) @@ plainto_tsquery('simple', :q)"
+        params["q"] = q
+        if where:
+            where += f" AND {tsq_clause}"
+        else:
+            where = f"WHERE {tsq_clause}"
+    count_q = f"SELECT COUNT(*) FROM documents {where}"
+    r_count = await db.execute(text(count_q), params)
+    total = r_count.scalar()
+    params["limit"] = limit
+    params["offset"] = offset
+    r = await db.execute(text(f"""
+        SELECT id, so_hieu, ten, loai, ngay_ban_hanh, tinh_trang, sac_thue,
+               github_path, LEFT(tom_tat, 300) as snippet, 'documents' as source, 0.5 as score
+        FROM documents {where}
+        ORDER BY ngay_ban_hanh DESC NULLS LAST
+        LIMIT :limit OFFSET :offset
+    """), params)
+    rows = [dict(row) for row in r.mappings().all()]
+    return rows, total
 
-    where = " AND ".join(conditions) if conditions else "1=1"
-
-    count_sql = f"SELECT COUNT(*) FROM documents WHERE {where}"
-    count_result = await db.execute(text(count_sql), params)
-    total = count_result.scalar()
-
-    sql = f"""
-        SELECT id, so_hieu, ten, loai, co_quan, ngay_ban_hanh, hieu_luc_tu,
-               tinh_trang, sac_thue, tu_khoa, tom_tat, link_tvpl, link_vbpl, luu_y,
-               category
+async def search_semantic(db: AsyncSession, q: str, filters: dict, limit: int, offset: int):
+    emb = await embed_text(q)
+    if not emb:
+        return await search_keyword(db, q, filters, limit, offset)
+    where, params = build_filters(filters)
+    params["emb"] = str(emb)
+    params["limit"] = limit + offset
+    r = await db.execute(text(f"""
+        SELECT id, so_hieu, ten, loai, ngay_ban_hanh, tinh_trang, sac_thue,
+               github_path, LEFT(tom_tat, 300) as snippet, 'documents' as source,
+               1-(embedding<=>:emb::vector) AS score
         FROM documents
-        WHERE {where}
-        ORDER BY ngay_ban_hanh DESC NULLS LAST
-        LIMIT :limit OFFSET :offset
-    """
-    result = await db.execute(text(sql), params)
-    rows = result.mappings().all()
-    return {"total": total, "items": [dict(r) for r in rows]}
+        {where}
+        {"AND" if where else "WHERE"} embedding IS NOT NULL
+        ORDER BY embedding<=>:emb::vector
+        LIMIT :limit
+    """), params)
+    rows = [dict(row) for row in r.mappings().all()]
+    total = len(rows)
+    return rows[offset:offset+limit], total
 
+async def do_search(db: AsyncSession, q: str, type: str, filters: dict, mode: str, limit: int, offset: int):
+    if not q:
+        # Default: return latest docs
+        where, params = build_filters(filters)
+        params["limit"] = limit
+        params["offset"] = offset
+        r_count = await db.execute(text(f"SELECT COUNT(*) FROM documents {where}"), params)
+        total = r_count.scalar()
+        r = await db.execute(text(f"""
+            SELECT id, so_hieu, ten, loai, ngay_ban_hanh, tinh_trang, sac_thue,
+                   github_path, LEFT(tom_tat, 300) as snippet, 'documents' as source, 1.0 as score
+            FROM documents {where}
+            ORDER BY ngay_ban_hanh DESC NULLS LAST
+            LIMIT :limit OFFSET :offset
+        """), params)
+        return [dict(row) for row in r.mappings().all()], total
 
-async def fulltext_search_cong_van(db: AsyncSession, query: str, filters: dict, limit: int = 50, offset: int = 0):
-    """Full-text search on cong_van table."""
-    conditions = []
-    params = {"limit": limit, "offset": offset}
-
-    if query:
-        conditions.append(
-            "to_tsvector('simple', so_hieu || ' ' || COALESCE(ten,'') || ' ' || COALESCE(ket_luan,'')) "
-            "@@ plainto_tsquery('simple', :query)"
-        )
-        params["query"] = query
-
-    if filters.get("co_quan"):
-        conditions.append("co_quan ILIKE :co_quan")
-        params["co_quan"] = f"%{filters['co_quan']}%"
-
-    if filters.get("sac_thue"):
-        conditions.append(":sac_thue = ANY(sac_thue)")
-        params["sac_thue"] = filters["sac_thue"]
-
-    if filters.get("year"):
-        conditions.append("EXTRACT(YEAR FROM ngay_ban_hanh) = :year")
-        params["year"] = int(filters["year"])
-
-    where = " AND ".join(conditions) if conditions else "1=1"
-
-    count_sql = f"SELECT COUNT(*) FROM cong_van WHERE {where}"
-    count_result = await db.execute(text(count_sql), params)
-    total = count_result.scalar()
-
-    sql = f"""
-        SELECT id, so_hieu, ten, co_quan, ngay_ban_hanh, sac_thue, ket_luan,
-               tags, link_tvpl
-        FROM cong_van
-        WHERE {where}
-        ORDER BY ngay_ban_hanh DESC NULLS LAST
-        LIMIT :limit OFFSET :offset
-    """
-    result = await db.execute(text(sql), params)
-    rows = result.mappings().all()
-    return {"total": total, "items": [dict(r) for r in rows]}
-
-
-async def semantic_search(db: AsyncSession, query: str, table: str = "documents", limit: int = 5):
-    """Semantic search using pgvector cosine distance."""
-    embedding = await get_embedding(query)
-    if not embedding:
-        return []
-
-    embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
-
-    if table == "documents":
-        sql = text(f"""
-            SELECT id, so_hieu, ten, loai, co_quan, ngay_ban_hanh, tinh_trang,
-                   tom_tat, noi_dung, luu_y,
-                   1 - (embedding <=> :embedding::vector) as similarity
-            FROM documents
-            WHERE embedding IS NOT NULL
-            ORDER BY embedding <=> :embedding::vector
-            LIMIT :limit
-        """)
+    if mode == "semantic":
+        return await search_semantic(db, q, filters, limit, offset)
     else:
-        sql = text(f"""
-            SELECT id, so_hieu, ten, co_quan, ngay_ban_hanh, ket_luan,
-                   noi_dung_day_du,
-                   1 - (embedding <=> :embedding::vector) as similarity
-            FROM cong_van
-            WHERE embedding IS NOT NULL
-            ORDER BY embedding <=> :embedding::vector
-            LIMIT :limit
-        """)
+        return await search_keyword(db, q, filters, limit, offset)
 
-    result = await db.execute(sql, {"embedding": embedding_str, "limit": limit})
-    rows = result.mappings().all()
-    return [dict(r) for r in rows]
+async def get_doc_by_id(db: AsyncSession, doc_id: int):
+    r = await db.execute(text("SELECT * FROM documents WHERE id=:id"), {"id": doc_id})
+    row = r.mappings().first()
+    return dict(row) if row else None
 
+async def get_cv_by_id(db: AsyncSession, cv_id: int):
+    r = await db.execute(text("SELECT * FROM cong_van WHERE id=:id"), {"id": cv_id})
+    row = r.mappings().first()
+    return dict(row) if row else None
 
-async def combined_search(db: AsyncSession, query: str, search_type: str = "all",
-                          filters: dict = None, limit: int = 50, offset: int = 0):
-    """Combined search across documents and cong_van."""
-    filters = filters or {}
-    results = {}
-
-    if search_type in ("all", "document"):
-        results["documents"] = await fulltext_search_documents(db, query, filters, limit, offset)
-
-    if search_type in ("all", "cong_van"):
-        results["cong_van"] = await fulltext_search_cong_van(db, query, filters, limit, offset)
-
-    return results
+async def get_article_by_id(db: AsyncSession, art_id: int):
+    r = await db.execute(text("SELECT * FROM articles WHERE id=:id"), {"id": art_id})
+    row = r.mappings().first()
+    return dict(row) if row else None
