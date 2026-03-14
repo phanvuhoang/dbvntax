@@ -41,6 +41,18 @@ def build_filters(filters: dict) -> tuple:
     if filters.get("tinh_trang"):
         where.append("tinh_trang = :tinh_trang")
         params["tinh_trang"] = filters["tinh_trang"]
+    if filters.get("hl") is not None:
+        where.append("hl = :hl")
+        params["hl"] = int(filters["hl"])
+    if filters.get("date_at"):
+        # Filter documents whose hieu_luc covers the given date:
+        # At least one hieu_luc entry where tu_ngay <= date AND (den_ngay IS NULL OR den_ngay >= date)
+        where.append("""EXISTS (
+            SELECT 1 FROM jsonb_array_elements(hieu_luc_index->'hieu_luc') AS e
+            WHERE (e->>'tu_ngay' IS NULL OR e->>'tu_ngay' <= :date_at)
+              AND (e->>'den_ngay' IS NULL OR e->>'den_ngay' >= :date_at)
+        )""")
+        params["date_at"] = filters["date_at"]
     clause = ("WHERE " + " AND ".join(where)) if where else ""
     return clause, params
 
@@ -59,8 +71,8 @@ async def search_keyword(db: AsyncSession, q: str, filters: dict, limit: int, of
     params["limit"] = limit
     params["offset"] = offset
     r = await db.execute(text(f"""
-        SELECT id, so_hieu, ten, loai, ngay_ban_hanh, tinh_trang, sac_thue,
-               github_path, LEFT(tom_tat, 300) as snippet, 'documents' as source, 0.5 as score
+        SELECT id, so_hieu, ten, loai, ngay_ban_hanh, tinh_trang, hl, sac_thue,
+               category_name, github_path, hieu_luc_index, LEFT(tom_tat, 300) as snippet, 'documents' as source, 0.5 as score
         FROM documents {where}
         ORDER BY ngay_ban_hanh DESC NULLS LAST
         LIMIT :limit OFFSET :offset
@@ -76,8 +88,8 @@ async def search_semantic(db: AsyncSession, q: str, filters: dict, limit: int, o
     params["emb"] = str(emb)
     params["limit"] = limit + offset
     r = await db.execute(text(f"""
-        SELECT id, so_hieu, ten, loai, ngay_ban_hanh, tinh_trang, sac_thue,
-               github_path, LEFT(tom_tat, 300) as snippet, 'documents' as source,
+        SELECT id, so_hieu, ten, loai, ngay_ban_hanh, tinh_trang, hl, sac_thue,
+               category_name, github_path, hieu_luc_index, LEFT(tom_tat, 300) as snippet, 'documents' as source,
                1-(embedding<=>:emb::vector) AS score
         FROM documents
         {where}
@@ -98,8 +110,8 @@ async def do_search(db: AsyncSession, q: str, type: str, filters: dict, mode: st
         r_count = await db.execute(text(f"SELECT COUNT(*) FROM documents {where}"), params)
         total = r_count.scalar()
         r = await db.execute(text(f"""
-            SELECT id, so_hieu, ten, loai, ngay_ban_hanh, tinh_trang, sac_thue,
-                   github_path, LEFT(tom_tat, 300) as snippet, 'documents' as source, 1.0 as score
+            SELECT id, so_hieu, ten, loai, ngay_ban_hanh, tinh_trang, hl, sac_thue,
+                   category_name, github_path, hieu_luc_index, LEFT(tom_tat, 300) as snippet, 'documents' as source, 1.0 as score
             FROM documents {where}
             ORDER BY ngay_ban_hanh DESC NULLS LAST
             LIMIT :limit OFFSET :offset

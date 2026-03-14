@@ -170,18 +170,38 @@ async def set_password(body: SetPasswordBody, db: AsyncSession = Depends(get_db)
     await db.commit()
     return {"message": "Đặt mật khẩu thành công"}
 
+@app.get("/api/categories")
+async def categories(db: AsyncSession = Depends(get_db)):
+    r = await db.execute(text("""
+        SELECT unnest(sac_thue) AS code, COUNT(*) AS count
+        FROM documents
+        GROUP BY code ORDER BY count DESC
+    """))
+    SAC_NAMES = {
+        'QLT': 'Quản lý thuế', 'CIT': 'Thuế TNDN', 'TNDN': 'Thuế TNDN',
+        'VAT': 'Thuế GTGT', 'GTGT': 'Thuế GTGT', 'HDDT': 'Hóa đơn điện tử',
+        'HOA_DON': 'Hóa đơn', 'PIT': 'Thuế TNCN', 'TNCN': 'Thuế TNCN',
+        'SCT': 'Thuế TTĐB', 'TTDB': 'Thuế TTĐB', 'FCT': 'Thuế nhà thầu',
+        'NHA_THAU': 'Nhà thầu', 'TP': 'Giao dịch liên kết', 'GDLK': 'Giao dịch LK',
+        'HKD': 'Hộ kinh doanh',
+    }
+    return [{"code": row["code"], "name": SAC_NAMES.get(row["code"], row["code"]), "count": row["count"]}
+            for row in r.mappings().all()]
+
 @app.get("/api/search")
 async def search(
     q: str = "", type: str = "all",
     sac_thue: Optional[str] = None, loai: Optional[str] = None,
     year_from: Optional[int] = None, year_to: Optional[int] = None,
-    tinh_trang: Optional[str] = None, mode: str = "hybrid",
+    tinh_trang: Optional[str] = None, hl: Optional[int] = None,
+    date_at: Optional[str] = None, mode: str = "hybrid",
     limit: int = Query(20, le=100), offset: int = 0,
     db: AsyncSession = Depends(get_db),
     user=Depends(get_optional_user),
 ):
     filters = {"sac_thue": sac_thue, "loai": loai,
-               "year_from": year_from, "year_to": year_to, "tinh_trang": tinh_trang}
+               "year_from": year_from, "year_to": year_to, "tinh_trang": tinh_trang,
+               "hl": hl, "date_at": date_at}
     results, total = await do_search(db, q, type, filters, mode, limit, offset)
     if user and q:
         await log_query(db, user["id"], q, f"search_{mode}", total)
