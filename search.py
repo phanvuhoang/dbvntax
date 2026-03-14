@@ -125,3 +125,29 @@ async def get_article_by_id(db: AsyncSession, art_id: int):
     r = await db.execute(text("SELECT * FROM articles WHERE id=:id"), {"id": art_id})
     row = r.mappings().first()
     return dict(row) if row else None
+
+async def list_cong_van(db: AsyncSession, q: str, sac_thue: str, nguon: str, limit: int, offset: int):
+    where = ["1=1"]
+    params = {}
+    if q:
+        where.append("to_tsvector('simple', coalesce(so_hieu,'') || ' ' || ten) @@ plainto_tsquery('simple', :q)")
+        params['q'] = q
+    if sac_thue:
+        where.append(":sac_thue = ANY(sac_thue)")
+        params['sac_thue'] = sac_thue
+    if nguon:
+        where.append("nguon = :nguon")
+        params['nguon'] = nguon
+    clause = 'WHERE ' + ' AND '.join(where)
+    r_count = await db.execute(text(f'SELECT COUNT(*) FROM cong_van {clause}'), params)
+    total = r_count.scalar()
+    params['limit'] = limit
+    params['offset'] = offset
+    r = await db.execute(text(f'''
+        SELECT id, so_hieu, ten, co_quan, ngay_ban_hanh, sac_thue, nguon, link_nguon
+        FROM cong_van {clause}
+        ORDER BY ngay_ban_hanh DESC NULLS LAST, id DESC
+        LIMIT :limit OFFSET :offset
+    '''), params)
+    rows = [dict(row) for row in r.mappings().all()]
+    return rows, total

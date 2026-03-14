@@ -18,7 +18,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db, engine
-from search import do_search, get_doc_by_id, get_cv_by_id, get_article_by_id
+from search import do_search, get_doc_by_id, get_cv_by_id, get_article_by_id, list_cong_van
 from ai import stream_quick_analysis, stream_analyze_doc, do_factcheck, do_related
 
 log = logging.getLogger("vntaxdb")
@@ -192,6 +192,15 @@ async def doc_detail(doc_id: int, db: AsyncSession = Depends(get_db)):
     d = await get_doc_by_id(db, doc_id)
     if not d: raise HTTPException(404, "Không tìm thấy văn bản")
     return d
+
+@app.get("/api/cong-van")
+async def cong_van_list(
+    q: str = "", sac_thue: Optional[str] = None, nguon: Optional[str] = None,
+    limit: int = Query(20, le=100), offset: int = 0,
+    db: AsyncSession = Depends(get_db),
+):
+    results, total = await list_cong_van(db, q, sac_thue, nguon, limit, offset)
+    return {"total": total, "results": results}
 
 @app.get("/api/cong_van/{cv_id}")
 async def cv_detail(cv_id: int, db: AsyncSession = Depends(get_db)):
