@@ -71,7 +71,8 @@ TAXONOMY = {
             "Chi hộ & thu hộ",
             "Thưởng & hỗ trợ từ đối tác",
             "Quỹ khoa học & công nghệ (KHCN)"
-        ]
+        ],
+        "Khác": ["khác", "vướng mắc", "hướng dẫn chung", "tư vấn"],
     },
     "GTGT": {
         "Đối tượng chịu thuế & thuế suất": [
@@ -115,7 +116,8 @@ TAXONOMY = {
             "Khai bổ sung & xử lý sai sót",
             "Bù trừ số thuế còn được khấu trừ",
             "Rủi ro kê khai sai chỉ tiêu"
-        ]
+        ],
+        "Khác": ["khác", "vướng mắc", "hướng dẫn chung", "tư vấn"],
     },
     "TNCN": {
         "Thu nhập từ tiền lương & tiền công": [
@@ -155,7 +157,8 @@ TAXONOMY = {
             "Thu nhập từ bản quyền & nhượng quyền",
             "Thu nhập từ trúng thưởng",
             "Thu nhập từ nông nghiệp & miễn thuế"
-        ]
+        ],
+        "Khác": ["khác", "vướng mắc", "hướng dẫn chung", "tư vấn"],
     },
     "TTDB": {
         "Đối tượng chịu thuế": [
@@ -180,7 +183,8 @@ TAXONOMY = {
             "Kỳ kê khai & hồ sơ",
             "Nộp thuế điện tử",
             "Khai bổ sung & điều chỉnh"
-        ]
+        ],
+        "Khác": ["khác", "vướng mắc", "hướng dẫn chung", "tư vấn"],
     },
     "FCT": {
         "Đối tượng & phạm vi áp dụng": [
@@ -211,7 +215,8 @@ TAXONOMY = {
             "Trách nhiệm khấu trừ & kê khai của bên VN",
             "Thời hạn kê khai từng lần phát sinh",
             "Hoàn thuế nhà thầu nộp thừa"
-        ]
+        ],
+        "Khác": ["khác", "vướng mắc", "hướng dẫn chung", "tư vấn"],
     },
     "GDLK": {
         "Xác định bên liên kết": [
@@ -244,7 +249,8 @@ TAXONOMY = {
             "Quy trình đàm phán & gia hạn APA",
             "Thanh tra & ấn định thuế chuyển giá",
             "Xử phạt vi phạm giao dịch liên kết"
-        ]
+        ],
+        "Khác": ["khác", "vướng mắc", "hướng dẫn chung", "tư vấn"],
     },
     "QLT": {
         "Đăng ký thuế": [
@@ -294,7 +300,8 @@ TAXONOMY = {
             "Quy trình khiếu nại quyết định thuế",
             "Khởi kiện hành chính về thuế",
             "Thời hiệu & thẩm quyền giải quyết"
-        ]
+        ],
+        "Khác": ["khác", "vướng mắc", "hướng dẫn chung", "tư vấn"],
     },
     "HOA_DON": {
         "Đăng ký & phát hành": [
@@ -329,7 +336,8 @@ TAXONOMY = {
             "Lưu trữ hóa đơn (thời hạn & phương thức)",
             "Tra cứu & xác thực hóa đơn trên hệ thống CQT",
             "Rủi ro hóa đơn từ doanh nghiệp bỏ trốn"
-        ]
+        ],
+        "Khác": ["khác", "vướng mắc", "hướng dẫn chung", "tư vấn"],
     },
     "HKD": {
         "Phương pháp tính thuế": [
@@ -360,7 +368,8 @@ TAXONOMY = {
             "Hóa đơn điện tử cấp theo từng lần",
             "Chế độ kế toán đơn giản",
             "Đăng ký & chấm dứt kinh doanh"
-        ]
+        ],
+        "Khác": ["khác", "vướng mắc", "hướng dẫn chung", "tư vấn"],
     },
     "XNK": {
         "Thuế xuất khẩu & nhập khẩu": [
@@ -391,7 +400,8 @@ TAXONOMY = {
             "Chính sách thuế DNCX",
             "Bán hàng nội địa vào khu chế xuất",
             "Hàng gửi kho ngoại quan"
-        ]
+        ],
+        "Khác": ["khác", "vướng mắc", "hướng dẫn chung", "tư vấn"],
     },
     "TAI_NGUYEN_DAT": {
         "Thuế tài nguyên": [
@@ -417,7 +427,8 @@ TAXONOMY = {
             "Đối tượng chịu thuế & miễn thuế",
             "Giá tính thuế & thuế suất",
             "Kê khai & nộp thuế"
-        ]
+        ],
+        "Khác": ["khác", "vướng mắc", "hướng dẫn chung", "tư vấn"],
     },
     "MON_BAI_PHI": {
         "Lệ phí môn bài": [
@@ -437,7 +448,8 @@ TAXONOMY = {
             "Phí thẩm định & đăng ký",
             "Lệ phí hải quan",
             "Danh mục phí & lệ phí theo Luật"
-        ]
+        ],
+        "Khác": ["khác", "vướng mắc", "hướng dẫn chung", "tư vấn"],
     }
 }
 
@@ -477,3 +489,30 @@ def classify_document(title: str, content: str = "") -> list[str]:
         if any(kw in text for kw in keywords):
             result.append(code)
     return result if result else ["QLT"]  # default: quản lý thuế
+
+# CHU_DE_RULES: build từ TAXONOMY để dùng cho classify
+CHU_DE_RULES = {}
+for _sac_thue, _chu_des in TAXONOMY.items():
+    CHU_DE_RULES[_sac_thue] = {}
+    for _chu_de, _chu_de_cons in _chu_des.items():
+        _keywords = [_chu_de.lower()] + [c.lower() for c in _chu_de_cons]
+        CHU_DE_RULES[_sac_thue][_chu_de] = _keywords
+
+
+def classify_chu_de(title: str, sac_thue_list: list, content: str = "") -> list:
+    """Classify chu_de cho CV dựa trên sac_thue.
+    Returns list of chu_de strings. Fallback: ['Khác'] nếu không match.
+    """
+    text = (title + " " + content).lower()
+    result = []
+    seen = set()
+    for sac_thue in sac_thue_list:
+        if sac_thue not in CHU_DE_RULES:
+            continue
+        for chu_de, keywords in CHU_DE_RULES[sac_thue].items():
+            if chu_de == "Khác":
+                continue
+            if any(kw in text for kw in keywords) and chu_de not in seen:
+                seen.add(chu_de)
+                result.append(chu_de)
+    return result if result else ["Khác"]
