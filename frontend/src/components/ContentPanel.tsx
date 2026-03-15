@@ -104,8 +104,24 @@ export default function ContentPanel({ item, tab, token, onRequestLogin }: Props
           {doc.hieu_luc_index && (doc.hieu_luc_index.hieu_luc ?? []).length > 0 ? (
             <HieuLucDetail index={doc.hieu_luc_index} />
           ) : (
-            <div className="mt-3 p-3 bg-gray-50 rounded text-sm text-gray-400 italic">
-              Chưa có thông tin hiệu lực chi tiết
+            <div className="mt-3 p-3 bg-gray-50 rounded-lg border border-gray-100">
+              <div className="flex items-center gap-2 text-sm">
+                <span className="font-medium text-gray-600">Tình trạng hiệu lực:</span>
+                {doc.hl === 1 || doc.tinh_trang === 'con_hieu_luc' ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs font-medium">
+                    ✓ Còn hiệu lực
+                  </span>
+                ) : doc.hl === 0 || doc.tinh_trang === 'het_hieu_luc' ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs font-medium">
+                    ✗ Hết hiệu lực
+                  </span>
+                ) : (
+                  <span className="text-gray-400 text-xs italic">Chưa xác định</span>
+                )}
+              </div>
+              <p className="text-xs text-gray-400 mt-1.5 italic">
+                Thông tin hiệu lực chi tiết (ngày áp dụng, điều khoản chuyển tiếp) đang được xử lý
+              </p>
             </div>
           )}
         </div>
