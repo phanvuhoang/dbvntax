@@ -18,42 +18,35 @@ import re
 import subprocess
 import sys
 from datetime import datetime, timezone
-from html.parser import HTMLParser
 from pathlib import Path
 
-
-# ── HTML → plain text ─────────────────────────────────────────────────────────
-class _TextExtractor(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self._text = []
-        self._skip = False
-    def handle_starttag(self, tag, attrs):
-        if tag in ('script', 'style', 'nav', 'header', 'footer'):
-            self._skip = True
-    def handle_endtag(self, tag):
-        if tag in ('script', 'style', 'nav', 'header', 'footer'):
-            self._skip = False
-    def handle_data(self, data):
-        if not self._skip:
-            self._text.append(data)
-
-def html_to_text(html: str) -> str:
-    p = _TextExtractor()
-    try:
-        p.feed(html)
-    except Exception:
-        pass
-    return re.sub(r'\s+', ' ', ' '.join(p._text)).strip()
+def extract_body_html(html: str) -> str:
+    """Extract phần nội dung chính từ HTML file của vn-tax-corpus.
+    Bỏ nav-bar, script, style — chỉ giữ #doc-body hoặc .doc-content."""
+    import re as _re
+    # Ưu tiên lấy #doc-body
+    m = _re.search(r'<div[^>]+id=["\']doc-body["\'][^>]*>(.*)', html, _re.DOTALL)
+    if m:
+        content = m.group(1)
+    else:
+        # Fallback: .doc-content
+        m = _re.search(r'<div[^>]+class=["\'][^"\']*doc-content[^"\']*["\'][^>]*>(.*)', html, _re.DOTALL)
+        content = m.group(1) if m else html
+    # Bỏ script/style
+    content = _re.sub(r'<script[^>]*>.*?</script>', '', content, flags=_re.DOTALL)
+    content = _re.sub(r'<style[^>]*>.*?</style>', '', content, flags=_re.DOTALL)
+    # Bỏ nav-bar
+    content = _re.sub(r'<div[^>]+class=["\']nav-bar["\'][^>]*>.*?</div>', '', content, flags=_re.DOTALL)
+    return content.strip()
 
 def read_html_content(github_path: str) -> str:
-    """Đọc HTML file từ corpus và convert sang plain text."""
+    """Đọc HTML file từ corpus, extract body HTML (không phải plain text)."""
     fpath = Path(CORPUS_DIR) / 'docs' / github_path
     if not fpath.exists():
         return ''
     try:
         html = fpath.read_text(encoding='utf-8', errors='ignore')
-        return html_to_text(html)
+        return extract_body_html(html)
     except Exception:
         return ''
 
