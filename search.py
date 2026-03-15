@@ -87,19 +87,23 @@ async def search_semantic(db: AsyncSession, q: str, filters: dict, limit: int, o
     where, params = build_filters(filters)
     params["emb"] = str(emb)
     params["limit"] = limit + offset
-    r = await db.execute(text(f"""
-        SELECT id, so_hieu, ten, loai, ngay_ban_hanh, tinh_trang, hl, sac_thue,
-               category_name, github_path, hieu_luc_index, LEFT(tom_tat, 300) as snippet, 'documents' as source,
-               1-(embedding<=>:emb::vector) AS score
-        FROM documents
-        {where}
-        {"AND" if where else "WHERE"} embedding IS NOT NULL
-        ORDER BY embedding<=>:emb::vector
-        LIMIT :limit
-    """), params)
-    rows = [dict(row) for row in r.mappings().all()]
-    total = len(rows)
-    return rows[offset:offset+limit], total
+    try:
+        r = await db.execute(text(f"""
+            SELECT id, so_hieu, ten, loai, ngay_ban_hanh, tinh_trang, hl, sac_thue,
+                   category_name, github_path, hieu_luc_index, LEFT(tom_tat, 300) as snippet, 'documents' as source,
+                   1-(embedding <=> :emb::vector) AS score
+            FROM documents
+            {where}
+            {"AND" if where else "WHERE"} embedding IS NOT NULL
+            ORDER BY embedding <=> :emb::vector
+            LIMIT :limit
+        """), params)
+        rows = [dict(row) for row in r.mappings().all()]
+        total = len(rows)
+        return rows[offset:offset+limit], total
+    except Exception as e:
+        print(f"Semantic search error (fallback to keyword): {e}")
+        return await search_keyword(db, q, filters, limit, offset)
 
 async def do_search(db: AsyncSession, q: str, type: str, filters: dict, mode: str, limit: int, offset: int):
     if not q:
