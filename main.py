@@ -36,18 +36,26 @@ ADMIN_PASS  = os.environ.get("ADMIN_PASSWORD", "VNTax@Admin2026")
 async def lifespan(app: FastAPI):
     log.info("VNTaxDB starting...")
     # Seed admin account
-    async with AsyncSession(engine) as db:
-        r = await db.execute(text("SELECT id FROM users WHERE email=:e"), {"e": ADMIN_EMAIL})
-        if not r.first():
+    try:
+        async with AsyncSession(engine) as db:
+            r = await db.execute(text("SELECT id, role FROM users WHERE email=:e"), {"e": ADMIN_EMAIL})
+            row = r.mappings().first()
             pw = pwd_ctx.hash(ADMIN_PASS)
-            await db.execute(text("""
-                INSERT INTO users (email, password_hash, ho_ten, role, plan, query_limit)
-                VALUES (:e, :p, 'Admin', 'admin', 'unlimited', 9999)
-            """), {"e": ADMIN_EMAIL, "p": pw})
+            if not row:
+                await db.execute(text("""
+                    INSERT INTO users (email, password_hash, ho_ten, role, plan, query_limit)
+                    VALUES (:e, :p, 'Admin', 'admin', 'unlimited', 9999)
+                """), {"e": ADMIN_EMAIL, "p": pw})
+                log.info(f"Admin account created: {ADMIN_EMAIL}")
+            else:
+                # Ensure admin role + reset password
+                await db.execute(text(
+                    "UPDATE users SET password_hash=:p, role='admin' WHERE email=:e"
+                ), {"e": ADMIN_EMAIL, "p": pw})
+                log.info(f"Admin account updated: {ADMIN_EMAIL}")
             await db.commit()
-            log.info(f"Admin account created: {ADMIN_EMAIL}")
-        else:
-            log.info(f"Admin account exists: {ADMIN_EMAIL}")
+    except Exception as e:
+        log.error(f"Admin seed failed (non-fatal): {e}")
     yield
     await engine.dispose()
 
