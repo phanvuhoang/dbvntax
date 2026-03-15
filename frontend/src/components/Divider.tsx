@@ -14,7 +14,11 @@ export default function Divider({ onResize }: Props) {
     const onUp = () => {
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
     };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
   };
@@ -22,7 +26,8 @@ export default function Divider({ onResize }: Props) {
   return (
     <div
       onMouseDown={onMouseDown}
-      className="w-1 cursor-col-resize bg-gray-200 hover:bg-primary flex-shrink-0 transition-colors"
+      className="w-1.5 cursor-col-resize bg-gray-200 hover:bg-primary active:bg-primary flex-shrink-0 transition-colors"
+      style={{ cursor: 'col-resize' }}
     />
   );
 }

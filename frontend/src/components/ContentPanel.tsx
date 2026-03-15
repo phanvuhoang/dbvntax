@@ -6,6 +6,24 @@ import HieuLucBadge from './HieuLucBadge';
 import HieuLucDetail from './HieuLucDetail';
 import AIAnalysis from './AIAnalysis';
 
+function TomTatBox({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="border border-gray-200 rounded mb-4 overflow-hidden">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 hover:bg-gray-100 transition text-left"
+      >
+        <span className="text-xs font-semibold text-gray-600 uppercase tracking-wider">📝 Tóm tắt</span>
+        <span className="text-gray-400 text-xs">{open ? '▲' : '▼'}</span>
+      </button>
+      {open && (
+        <div className="px-3 py-2 text-sm text-gray-600 leading-relaxed">{text}</div>
+      )}
+    </div>
+  );
+}
+
 interface Props {
   item: Document | CongVan | null;
   tab: 'vanban' | 'congvan';
@@ -16,7 +34,6 @@ interface Props {
 export default function ContentPanel({ item, tab, token, onRequestLogin }: Props) {
   const [showAI, setShowAI] = useState(false);
   const [fontSize, setFontSize] = useState(14);
-  const [hieuLucExpanded, setHieuLucExpanded] = useState(false);
   const docQuery = useDocumentDetail(tab === 'vanban' && item ? item.id : null);
   const cvQuery = useCongVanDetail(tab === 'congvan' && item ? item.id : null);
 
@@ -114,52 +131,17 @@ export default function ContentPanel({ item, tab, token, onRequestLogin }: Props
         </div>
       </div>
 
-      {/* Hieu luc — expandable box */}
-      {tab === 'vanban' && (
-        <div className="px-4 flex-shrink-0">
-          <div className="border rounded-lg overflow-hidden mt-2">
-            <button
-              onClick={() => setHieuLucExpanded(!hieuLucExpanded)}
-              className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 hover:bg-gray-100 text-sm transition"
-            >
-              <span className="flex items-center gap-2">
-                <span className="font-medium text-gray-600">Hiệu lực</span>
-                {doc.hl === 1 || doc.tinh_trang === 'con_hieu_luc' ? (
-                  <span className="text-xs px-2 py-0.5 bg-green-100 text-green-700 rounded font-medium">✓ Còn hiệu lực</span>
-                ) : doc.hl === 0 || doc.tinh_trang === 'het_hieu_luc' ? (
-                  <span className="text-xs px-2 py-0.5 bg-red-100 text-red-700 rounded font-medium">✗ Hết hiệu lực</span>
-                ) : (
-                  <span className="text-xs text-gray-400 italic">Chưa xác định</span>
-                )}
-                {(doc.hieu_luc_index?.hieu_luc ?? []).length > 0 && doc.hieu_luc_index?.tom_tat_hieu_luc && (
-                  <span className="text-xs text-gray-400 truncate max-w-[200px]">
-                    {doc.hieu_luc_index.tom_tat_hieu_luc.slice(0, 50)}
-                  </span>
-                )}
-              </span>
-              <span className="text-gray-400 text-xs">{hieuLucExpanded ? '▲' : '▼'}</span>
-            </button>
-            {hieuLucExpanded && (
-              <div className="px-3 py-2 border-t border-gray-100">
-                {doc.hieu_luc_index && (doc.hieu_luc_index.hieu_luc ?? []).length > 0 ? (
-                  <HieuLucDetail index={doc.hieu_luc_index} />
-                ) : (
-                  <p className="text-xs text-gray-400 italic">
-                    Thông tin hiệu lực chi tiết đang được xử lý
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
+      {/* Hiệu lực chi tiết — expandable, mặc định collapsed */}
+      {tab === 'vanban' && doc.hieu_luc_index && (
+        <div className="px-4 mt-2 flex-shrink-0">
+          <HieuLucDetail index={doc.hieu_luc_index} />
         </div>
       )}
 
-      {/* Tom tat */}
-      {doc.tom_tat && (
-        <div className="px-4 mt-2 flex-shrink-0">
-          <div className="bg-gray-50 border-l-[3px] border-primary p-3 rounded text-sm text-gray-600 leading-relaxed">
-            <strong className="text-gray-700">Tóm tắt:</strong> {doc.tom_tat}
-          </div>
+      {/* Tóm tắt — expandable, mặc định collapsed */}
+      {(doc as Document).tom_tat && (
+        <div className="px-4 flex-shrink-0">
+          <TomTatBox text={(doc as Document).tom_tat!} />
         </div>
       )}
 

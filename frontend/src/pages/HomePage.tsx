@@ -162,7 +162,7 @@ export default function HomePage() {
       </header>
 
       {/* Main Content — 3-panel resizable layout */}
-      <div className="flex flex-1 overflow-hidden relative">
+      <div className="flex flex-1 overflow-hidden relative select-none">
         {sidebarOpen && (
           <div className="fixed inset-0 bg-black/30 z-30 md:hidden" onClick={() => setSidebarOpen(false)} />
         )}
@@ -182,7 +182,7 @@ export default function HomePage() {
         </div>
 
         {/* Divider: Sidebar | DocList */}
-        <div className="hidden md:flex h-full">
+        <div className="hidden md:flex h-full flex-shrink-0">
           <Divider onResize={handleSidebarResize} />
         </div>
 
