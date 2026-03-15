@@ -1,10 +1,13 @@
 import { useState, useCallback } from 'react';
 import type { Document, CongVan } from '../types';
 import { useSearch, useCongVan, useHealth } from '../api';
+import { useAuth } from '../auth';
 import Sidebar from '../components/Sidebar';
 import SearchBar from '../components/SearchBar';
 import DocList from '../components/DocList';
 import DocDetail from '../components/DocDetail';
+import AuthModal from '../components/AuthModal';
+import QuickAnalysis from '../components/QuickAnalysis';
 
 type Tab = 'vanban' | 'congvan';
 
@@ -20,10 +23,12 @@ export default function HomePage() {
   const [dateAt, setDateAt] = useState('');
   const [selectedItem, setSelectedItem] = useState<Document | CongVan | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [showAuth, setShowAuth] = useState(false);
+  const [showAI, setShowAI] = useState(false);
 
+  const auth = useAuth();
   const { data: health } = useHealth();
 
-  // Search documents
   const searchResult = useSearch({
     q: query,
     sac_thue: category,
@@ -35,7 +40,6 @@ export default function HomePage() {
     offset: (page - 1) * LIMIT,
   });
 
-  // Cong van
   const congVanResult = useCongVan({
     q: query,
     sac_thue: category,
@@ -52,77 +56,91 @@ export default function HomePage() {
   const isLoading = tab === 'vanban' ? searchResult.isLoading : congVanResult.isLoading;
 
   const handleSearch = useCallback((q: string) => {
-    setQuery(q);
-    setPage(1);
-    setSelectedItem(null);
+    setQuery(q); setPage(1); setSelectedItem(null);
   }, []);
 
   const handleCategorySelect = useCallback((code: string) => {
-    setCategory(code);
-    setPage(1);
-    setSelectedItem(null);
+    setCategory(code); setPage(1); setSelectedItem(null);
   }, []);
 
   const handleTabChange = useCallback((t: Tab) => {
-    setTab(t);
-    setPage(1);
-    setSelectedItem(null);
+    setTab(t); setPage(1); setSelectedItem(null);
   }, []);
 
   const resetPage = useCallback(() => setPage(1), []);
+
+  const requestLogin = useCallback(() => setShowAuth(true), []);
 
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
       <header className="bg-white border-b border-gray-200 flex-shrink-0">
         <div className="flex items-center gap-3 px-4 h-12">
-          {/* Mobile sidebar toggle */}
-          <button
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="md:hidden text-gray-500 hover:text-primary"
-            aria-label="Toggle sidebar"
-          >
+          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="md:hidden text-gray-500 hover:text-primary" aria-label="Menu">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
 
-          {/* Logo */}
-          <span className="text-lg font-bold text-primary whitespace-nowrap tracking-tight">
-            VNTaxDB
-          </span>
+          <span className="text-lg font-bold text-primary whitespace-nowrap tracking-tight">⚖️ VNTaxDB</span>
 
-          {/* Tabs */}
           <div className="flex gap-0.5">
-            <button
-              onClick={() => handleTabChange('vanban')}
-              className={`px-3 py-1.5 text-sm font-medium rounded-t transition
-                ${tab === 'vanban'
-                  ? 'text-primary border-b-2 border-primary bg-primary-light'
-                  : 'text-gray-500 hover:text-primary hover:bg-primary-light'}`}
-            >
-              Văn bản
-            </button>
-            <button
-              onClick={() => handleTabChange('congvan')}
-              className={`px-3 py-1.5 text-sm font-medium rounded-t transition
-                ${tab === 'congvan'
-                  ? 'text-primary border-b-2 border-primary bg-primary-light'
-                  : 'text-gray-500 hover:text-primary hover:bg-primary-light'}`}
-            >
-              Công văn
-            </button>
+            {(['vanban', 'congvan'] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => handleTabChange(t)}
+                className={`px-3 py-1.5 text-sm font-medium rounded-t transition ${
+                  tab === t
+                    ? 'text-primary border-b-2 border-primary bg-primary-light'
+                    : 'text-gray-500 hover:text-primary hover:bg-primary-light'
+                }`}
+              >
+                {t === 'vanban' ? 'Văn bản' : 'Công văn'}
+              </button>
+            ))}
           </div>
 
-          {/* Stats */}
           {health && (
             <span className="ml-auto text-xs text-gray-400 hidden sm:block">
-              {health.documents} văn bản · {health.cong_van} công văn
+              {health.documents} văn bản · {health.cong_van} công văn · {health.articles} bài viết
             </span>
           )}
+
+          {/* AI button */}
+          <button
+            onClick={() => setShowAI(!showAI)}
+            className={`px-3 py-1.5 text-sm font-medium rounded transition hidden sm:block ${
+              showAI ? 'bg-primary text-white' : 'text-gray-500 hover:text-primary hover:bg-primary-light'
+            }`}
+          >
+            🤖 Hỏi AI
+          </button>
+
+          {/* Auth */}
+          <div className="flex items-center gap-2">
+            {auth.isLoggedIn ? (
+              <>
+                <span className="text-xs text-primary font-medium hidden sm:block">
+                  {auth.user?.ho_ten || auth.user?.email}
+                </span>
+                <button
+                  onClick={auth.logout}
+                  className="px-3 py-1 text-xs border border-gray-300 rounded text-gray-500 hover:border-primary hover:text-primary transition"
+                >
+                  Đăng xuất
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => setShowAuth(true)}
+                className="px-3 py-1.5 text-sm bg-primary text-white rounded hover:bg-primary-dark transition"
+              >
+                Đăng nhập
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* Search */}
         <div className="px-4 py-1.5">
           <SearchBar value={query} onChange={handleSearch} />
         </div>
@@ -130,15 +148,10 @@ export default function HomePage() {
 
       {/* Main Content */}
       <div className="flex flex-1 overflow-hidden relative">
-        {/* Mobile sidebar overlay */}
         {sidebarOpen && (
-          <div
-            className="fixed inset-0 bg-black/30 z-30 md:hidden"
-            onClick={() => setSidebarOpen(false)}
-          />
+          <div className="fixed inset-0 bg-black/30 z-30 md:hidden" onClick={() => setSidebarOpen(false)} />
         )}
 
-        {/* Sidebar — always visible on md+, slide-in on mobile */}
         <div className={`${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 transition-transform duration-200 fixed md:static z-40 md:z-auto h-full`}>
           <Sidebar
             selected={category}
@@ -167,13 +180,38 @@ export default function HomePage() {
           />
         </div>
 
-        {/* Detail Panel */}
-        <DocDetail
-          item={selectedItem}
-          tab={tab}
-          onClose={() => setSelectedItem(null)}
-        />
+        {/* Detail + Quick AI panel */}
+        <div className="flex flex-1 overflow-hidden">
+          <DocDetail
+            item={selectedItem}
+            tab={tab}
+            onClose={() => setSelectedItem(null)}
+            token={auth.token}
+            onRequestLogin={requestLogin}
+          />
+
+          {/* Quick Analysis panel */}
+          {showAI && (
+            <div className="w-[380px] border-l border-gray-200 bg-white flex flex-col overflow-hidden flex-shrink-0">
+              <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100 bg-gray-50 flex-shrink-0">
+                <span className="text-sm font-semibold text-gray-700">Hỏi AI</span>
+                <button onClick={() => setShowAI(false)} className="text-gray-400 hover:text-gray-600">✕</button>
+              </div>
+              <div className="flex-1 overflow-hidden p-3">
+                <QuickAnalysis token={auth.token} onRequestLogin={requestLogin} />
+              </div>
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* Auth modal */}
+      <AuthModal
+        open={showAuth}
+        onClose={() => setShowAuth(false)}
+        onLogin={auth.login}
+        onRegister={auth.register}
+      />
     </div>
   );
 }
