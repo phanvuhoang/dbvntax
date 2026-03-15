@@ -75,39 +75,50 @@ IMPORTANCE_MAP = {
     'ND': 1, 'TT': 1, 'Luat': 2, 'VBHN': 2, 'NQ': 2, 'QD': 3, 'CV': 4, 'Khac': 3
 }
 TX_MAP = {
-    'QLT': 'QLT', 'GTGT': 'GTGT', 'TNDN': 'TNDN', 'TNCN': 'TNCN',
-    'TTDB': 'TTDB', 'NhaThau': 'FCT', 'GDLK': 'GDLK', 'HoaDon': 'HOA_DON',
-    'HKD': 'HKD', 'TaiNguyen': 'TAI_NGUYEN_DAT', 'TruocBa': 'MON_BAI_PHI',
-    'MonBai': 'MON_BAI_PHI', 'PhiBVMT': 'MON_BAI_PHI', 'BVMT': 'MON_BAI_PHI',
-    'LoiNhuan': 'TNDN', 'DauTuNN': 'TNDN', 'ODA': 'QLT',
+    # Direct codes
+    'QLT': 'QLT', 'CIT': 'CIT', 'VAT': 'VAT', 'PIT': 'PIT',
+    'SCT': 'SCT', 'FCT': 'FCT', 'TP': 'TP', 'HKD': 'HKD', 'HDDT': 'HDDT',
+    # Alternate names → 9 priority codes
+    'TNDN': 'CIT', 'GTGT': 'VAT', 'TNCN': 'PIT',
+    'TTDB': 'SCT', 'NhaThau': 'FCT',
+    'GDLK': 'TP', 'ChuenGia': 'TP',
+    'HoaDon': 'HDDT',
+    'LoiNhuan': 'CIT', 'DauTuNN': 'CIT', 'ODA': 'QLT',
+    # Out of 9 priority — keep as-is for filtering
+    'TaiNguyen': 'TAI_NGUYEN', 'TruocBa': 'TRUOC_BA',
+    'MonBai': 'MON_BAI', 'PhiBVMT': 'PHI_BVMT', 'BVMT': 'BVMT',
 }
 P3_MAP = {
-    'LUAT QLT': 'QLT', 'LUAT_QLT': 'QLT',
-    'THUE GTGT': 'GTGT', 'THUE_GTGT': 'GTGT',
-    'THUE TNDN': 'TNDN', 'THUE_TNDN': 'TNDN',
-    'THUE TNCN': 'TNCN', 'THUE_TNCN': 'TNCN',
-    'THUE TTDB': 'TTDB', 'THUE_TTDB': 'TTDB',
-    'NHA THAU': 'FCT', 'NHA_THAU': 'FCT',
-    'GDLK': 'GDLK', 'CHUYEN GIA': 'GDLK',
-    'HOA DON': 'HOA_DON', 'HOA_DON': 'HOA_DON',
+    'LUAT QLT': 'QLT', 'LUAT_QLT': 'QLT', '001.LUAT_QLT': 'QLT',
+    'THUE GTGT': 'VAT', 'THUE_GTGT': 'VAT', '003.THUE_GTGT': 'VAT',
+    'THUE TNDN': 'CIT', 'THUE_TNDN': 'CIT', '004.THUE_TNDN': 'CIT', '002.THUE_TNDN': 'CIT',
+    'THUE TNCN': 'PIT', 'THUE_TNCN': 'PIT', '005.THUE_TNCN': 'PIT', '006.THUE_TNCN': 'PIT',
+    'THUE TTDB': 'SCT', 'THUE_TTDB': 'SCT', '005.THUE_TTDB': 'SCT', '006.THUE_TTDB': 'SCT',
+    'NHA THAU': 'FCT', 'NHA_THAU': 'FCT', 'THUE_NHA_THAU': 'FCT',
+    '007.THUE_NHA_THAU': 'FCT', '008.THUE_NHA_THAU': 'FCT',
+    'GDLK': 'TP', 'CHUYEN GIA': 'TP', 'GIAO_DICH_LK': 'TP',
+    '008.GIAO_DICH_LK': 'TP', '009.GIAO_DICH_LK': 'TP', '012._GIAO_DICH_LK': 'TP',
+    'HOA DON': 'HDDT', 'HOA_DON': 'HDDT', 'HOA_DON_DIEN_TU': 'HDDT',
+    '004.HOA_DON': 'HDDT', '021._HOA_DON': 'HDDT',
     'HO KINH DOANH': 'HKD', 'HKD': 'HKD',
+    '009.HO_KINH_DOANH': 'HKD', '016._HO_KINH_DOANH': 'HKD', '018._HO_KINH_DOANH': 'HKD',
     'XUAT NHAP KHAU': 'XNK', 'XNK': 'XNK', 'HAI QUAN': 'XNK',
-    'TAI NGUYEN': 'TAI_NGUYEN_DAT', 'TIEN THUE DAT': 'TAI_NGUYEN_DAT',
-    'MON BAI': 'MON_BAI_PHI', 'PHI LE PHI': 'MON_BAI_PHI',
+    'TAI NGUYEN': 'TAI_NGUYEN', 'TIEN THUE DAT': 'TAI_NGUYEN',
+    'MON BAI': 'MON_BAI', 'PHI LE PHI': 'PHI_BVMT',
 }
 CLASSIFICATION_RULES = {
-    'TNDN': ['thu nhập doanh nghiệp','tndn','cit','chi phí được trừ','ưu đãi thuế','khấu hao','ebitda','lãi vay'],
-    'GTGT': ['giá trị gia tăng','gtgt','vat','hoàn thuế gtgt','khấu trừ thuế','thuế suất 0%','thuế suất 5%','thuế suất 10%'],
-    'TNCN': ['thu nhập cá nhân','tncn','pit','giảm trừ gia cảnh','quyết toán thuế tncn','người phụ thuộc','183 ngày'],
-    'TTDB': ['tiêu thụ đặc biệt','ttđb','ttdb','sct','rượu bia','thuốc lá'],
+    'CIT':  ['thu nhập doanh nghiệp','tndn','cit','chi phí được trừ','ưu đãi thuế','khấu hao','ebitda','lãi vay'],
+    'VAT':  ['giá trị gia tăng','gtgt','vat','hoàn thuế gtgt','khấu trừ thuế','thuế suất 0%','thuế suất 5%','thuế suất 10%'],
+    'PIT':  ['thu nhập cá nhân','tncn','pit','giảm trừ gia cảnh','quyết toán thuế tncn','người phụ thuộc','183 ngày'],
+    'SCT':  ['tiêu thụ đặc biệt','ttđb','ttdb','sct','rượu bia','thuốc lá'],
     'FCT':  ['nhà thầu nước ngoài','nhà thầu','fct','royalty','bản quyền','lãi vay nước ngoài'],
-    'GDLK': ['giao dịch liên kết','chuyển giá','transfer pricing','bên liên kết','nghị định 132','cbcr'],
+    'TP':   ['giao dịch liên kết','chuyển giá','transfer pricing','bên liên kết','nghị định 132','cbcr'],
     'QLT':  ['quản lý thuế','kê khai','nộp thuế','hoàn thuế','thanh tra thuế','kiểm tra thuế','xử phạt','mã số thuế','gia hạn nộp thuế','tiền chậm nộp'],
-    'HOA_DON': ['hóa đơn điện tử','hđđt','xuất hóa đơn','hóa đơn sai sót','hóa đơn thay thế'],
+    'HDDT': ['hóa đơn điện tử','hđđt','xuất hóa đơn','hóa đơn sai sót','hóa đơn thay thế'],
     'HKD':  ['hộ kinh doanh','cá nhân kinh doanh','thuế khoán','cho thuê nhà','sàn tmđt'],
     'XNK':  ['xuất nhập khẩu','hải quan','nhập khẩu','xuất khẩu','mã hs','thông quan','xuất xứ','fta'],
-    'TAI_NGUYEN_DAT': ['tài nguyên','tiền thuê đất','tiền sử dụng đất','thuê mặt nước','khoáng sản','đất đai'],
-    'MON_BAI_PHI': ['môn bài','lệ phí môn bài','trước bạ','phí bảo vệ môi trường','lệ phí hải quan'],
+    'TAI_NGUYEN': ['tài nguyên','tiền thuê đất','tiền sử dụng đất','thuê mặt nước','khoáng sản','đất đai'],
+    'MON_BAI': ['môn bài','lệ phí môn bài','trước bạ','phí bảo vệ môi trường','lệ phí hải quan'],
 }
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -164,9 +175,9 @@ def psql(sql, dry_run=False):
     if dry_run:
         return True, ''
     r = subprocess.run(
-        ['docker', 'exec', DB_CONTAINER,
-         'psql', '-U', 'legaldb_user', '-d', 'postgres', '-c', sql],
-        capture_output=True, text=True
+        ['docker', 'exec', '-i', DB_CONTAINER,
+         'psql', '-U', 'legaldb_user', '-d', 'postgres'],
+        input=sql, capture_output=True, text=True
     )
     has_error = 'ERROR' in r.stderr and 'NOTICE' not in r.stderr
     return not has_error, r.stderr.strip()[:120]
