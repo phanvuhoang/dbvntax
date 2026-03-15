@@ -65,7 +65,8 @@ CORPUS_INDEX  = f'{CORPUS_DIR}/index.json'
 TELEGRAM_TOKEN = ''   # optional — set nếu muốn notify
 TELEGRAM_CHAT  = ''
 
-# ── Mappings ──────────────────────────────────────────────────────────────────
+# 9 priority sac_thue codes — chỉ import docs thuộc các categories này
+PRIORITY_CODES = {'QLT','CIT','VAT','HDDT','PIT','SCT','FCT','TP','HKD'}
 TYPE_MAP = {
     'Luật': 'Luat', 'NĐ': 'ND', 'Nghị định': 'ND', 'TT': 'TT',
     'VBHN': 'VBHN', 'QĐ': 'QD', 'NQ': 'NQ', 'CV': 'CV',
@@ -302,6 +303,9 @@ ON CONFLICT (link_nguon) DO UPDATE SET
             else:  cv_err += 1; print(f'  CV ERR: {name[:50]} | {err}')
         else:
             # → documents table, upsert by github_path
+            # Chỉ import docs thuộc 9 priority categories
+            if not any(c in PRIORITY_CODES for c in sac_thue):
+                continue
             noi_dung = read_html_content(github_p) if not dry_run else ''
             sql = f"""
 INSERT INTO documents
