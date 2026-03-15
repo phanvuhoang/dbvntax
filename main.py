@@ -207,6 +207,24 @@ async def search(
         await log_query(db, user["id"], q, f"search_{mode}", total)
     return {"total": total, "results": results, "q": q, "mode": mode}
 
+@app.get("/api/documents")
+async def documents_list(
+    q: str = "",
+    category: Optional[str] = None,    # sac_thue code e.g. "CIT","VAT"
+    loai: Optional[str] = None,         # TT/ND/Luat/VBHN/QD/NQ/CV
+    hl: Optional[int] = None,           # 1=còn HL, 0=hết HL
+    year_from: Optional[int] = None,
+    year_to: Optional[int] = None,
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, le=100),
+    db: AsyncSession = Depends(get_db),
+):
+    offset = (page - 1) * limit
+    filters = {"sac_thue": category, "loai": loai, "hl": hl,
+               "year_from": year_from, "year_to": year_to}
+    results, total = await do_search(db, q, "documents", filters, "keyword", limit, offset)
+    return {"items": results, "total": total, "page": page, "limit": limit}
+
 @app.get("/api/documents/{doc_id}")
 async def doc_detail(doc_id: int, db: AsyncSession = Depends(get_db)):
     d = await get_doc_by_id(db, doc_id)
