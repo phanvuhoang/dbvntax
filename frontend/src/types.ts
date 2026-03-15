@@ -88,6 +88,7 @@ export const CATEGORIES = [
   { code: 'FCT', name: 'Thuế nhà thầu', color: 'yellow' },
   { code: 'TP', name: 'Giao dịch liên kết', color: 'indigo' },
   { code: 'HKD', name: 'Hộ kinh doanh', color: 'pink' },
+  { code: 'THUE_QT', name: 'Thuế Quốc tế', color: 'sky' },
 ] as const;
 
 export const LOAI_LABELS: Record<string, string> = {
@@ -119,4 +120,5 @@ export const SAC_THUE_MAP: Record<string, string> = {
   TP: 'Giao dịch LK',
   GDLK: 'Giao dịch LK',
   HKD: 'Hộ KD',
+  THUE_QT: 'Thuế Quốc tế',
 };
