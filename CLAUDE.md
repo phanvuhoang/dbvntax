@@ -367,6 +367,92 @@ export default defineConfig({
 
 ---
 
+## 🤖 AI Analysis Features
+
+Backend đã có 4 AI endpoints (dùng Claudible claude-sonnet, streaming). Frontend cần build UI cho chúng.
+
+### API Endpoints
+
+```
+POST /api/ai/quick-analysis       (requires auth)
+  body: { question: string, context_doc_ids?: number[] }
+  → StreamingResponse (text/event-stream)
+  Use case: "Tiền thuê nhà cho nhân viên có được khấu trừ CIT không?"
+
+POST /api/ai/analyze-document     (requires auth)
+  body: { doc_id: number, analysis_type: "short"|"long"|"explain" }
+  → StreamingResponse
+  Use case: Phân tích 1 văn bản cụ thể
+
+POST /api/ai/factcheck            (requires auth)
+  body: { claim: string }
+  → { verdict, confidence, sources: [...] }
+  Use case: Verify một trích dẫn/claim có đúng không
+
+POST /api/ai/related              (không cần auth)
+  body: { doc_id: number }
+  → { related: [...documents] }
+  Use case: Tìm VB liên quan (sửa đổi, thay thế, bổ sung)
+```
+
+### UI: Analysis Panel
+
+Thêm tab **"Phân tích AI"** trong DocDetail panel:
+
+```
+┌─── DocDetail ──────────────────────────────┐
+│ [Thông tin] [Phân tích AI]                 │
+│                                             │
+│ Tab "Phân tích AI":                         │
+│                                             │
+│ Loại phân tích:                             │
+│ ○ Tóm tắt ngắn (300-500 từ)               │
+│ ○ Memo đầy đủ (multi-section)              │
+│ ○ Giải thích đơn giản                      │
+│                                             │
+│ [🤖 Tạo phân tích]                         │
+│                                             │
+│ ── Kết quả (streaming) ──────────────────  │
+│ Đang phân tích... ▌                        │
+│                                             │
+│ (text streams in real-time)                │
+│                                             │
+│ Độ tin cậy: ██████░░ 75%                   │
+│ Nguồn: NĐ 68/2026, TT 40/2021...          │
+└─────────────────────────────────────────────┘
+```
+
+### UI: Quick Analysis Box
+
+Thêm **floating search/analysis box** ở góc phải màn hình (hoặc tab riêng):
+
+```
+┌─── Hỏi AI ─────────────────────────────────┐
+│ Đặt câu hỏi thuế...                        │
+│ [Tiền thuê nhà cho NV có khấu trừ CIT?   ] │
+│                                             │
+│ Văn bản liên quan: [tự động suggest]        │
+│ ☑ NĐ 68/2026  ☑ TT 40/2021               │
+│                                             │
+│ [🤖 Phân tích ngắn]  [📄 Tạo memo]        │
+└─────────────────────────────────────────────┘
+```
+
+**Streaming output:** Dùng `EventSource` hoặc `fetch` với `ReadableStream` để hiển thị text AI real-time.
+
+### Example prompts (hiển thị dưới input để inspire user)
+
+```typescript
+const EXAMPLE_PROMPTS = [
+  "Tiền thuê nhà trả cho cá nhân có được khấu trừ CIT không?",
+  "Hộ kinh doanh doanh thu 500tr/năm phải nộp những loại thuế gì?",
+  "Tổng hợp các thay đổi về thuế TNCN từ 2020–2026",
+  "Nhà thầu nước ngoài cung cấp dịch vụ phần mềm qua internet chịu thuế gì?",
+];
+```
+
+---
+
 ## ✅ Checklist khi hoàn thành
 
 1. [ ] `npm run build` không lỗi
@@ -374,13 +460,16 @@ export default defineConfig({
 3. [ ] `GET /api/categories` — handle plain array (không phải `{items:[...]}`)
 4. [ ] HieuLucBadge hiển thị đúng 3 trạng thái (xanh/đỏ/vàng)
 5. [ ] DocDetail panel slide-in khi click card
-6. [ ] Pagination hoạt động (page param)
-7. [ ] Filter sidebar hoạt động
-8. [ ] Tab Văn bản + Công văn chuyển được
-9. [ ] Responsive (mobile friendly cơ bản)
-10. [ ] Commit message rõ ràng
-11. [ ] **Xóa file test**: `test-openclaw.txt`
-12. [ ] File này (CLAUDE.md) — có thể xóa sau khi đọc xong
+6. [ ] Tab "Thông tin" + "Phân tích AI" trong DocDetail
+7. [ ] Quick Analysis box hoạt động, streaming output hiển thị real-time
+8. [ ] Pagination hoạt động (page param)
+9. [ ] Filter sidebar hoạt động
+10. [ ] Tab Văn bản + Công văn chuyển được
+11. [ ] Responsive (mobile friendly cơ bản)
+12. [ ] **Commit** tất cả changes với message rõ ràng
+13. [ ] **Push** lên GitHub (`git push origin main`)
+14. [ ] **Xóa file rác**: `test-openclaw.txt`, `CLAUDE.md` (file này)
+15. [ ] Repo sau khi xong: chỉ còn backend files + `frontend/` + `Dockerfile`
 
 ---
 
