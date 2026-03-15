@@ -47,16 +47,16 @@ export default function HieuLucDetail({ index }: { index: HieuLucIndex }) {
         </div>
       )}
 
-      {index.van_ban_thay_the?.length > 0 && (
+      {(index.van_ban_thay_the ?? []).length > 0 && (
         <div className="mt-3 text-sm">
           <span className="font-medium text-red-700">Thay thế hoàn toàn: </span>
-          {index.van_ban_thay_the.join(', ')}
+          {(index.van_ban_thay_the ?? []).join(', ')}
         </div>
       )}
-      {index.van_ban_sua_doi?.length > 0 && (
+      {(index.van_ban_sua_doi ?? []).length > 0 && (
         <div className="mt-1 text-sm">
           <span className="font-medium text-yellow-700">Sửa đổi một phần: </span>
-          {index.van_ban_sua_doi.join(', ')}
+          {(index.van_ban_sua_doi ?? []).join(', ')}
         </div>
       )}
     </div>

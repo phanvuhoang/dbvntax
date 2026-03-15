@@ -5,9 +5,10 @@ import { useAuth } from '../auth';
 import Sidebar from '../components/Sidebar';
 import SearchBar from '../components/SearchBar';
 import DocList from '../components/DocList';
-import DocDetail from '../components/DocDetail';
+import ContentPanel from '../components/ContentPanel';
 import AuthModal from '../components/AuthModal';
 import QuickAnalysis from '../components/QuickAnalysis';
+import Divider from '../components/Divider';
 
 type Tab = 'vanban' | 'congvan';
 
@@ -25,6 +26,10 @@ export default function HomePage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
   const [showAI, setShowAI] = useState(false);
+
+  // Resizable panel widths
+  const [sidebarW, setSidebarW] = useState(200);
+  const [listW, setListW] = useState(280);
 
   const auth = useAuth();
   const { data: health } = useHealth();
@@ -70,6 +75,14 @@ export default function HomePage() {
   const resetPage = useCallback(() => setPage(1), []);
 
   const requestLogin = useCallback(() => setShowAuth(true), []);
+
+  const handleSidebarResize = useCallback((dx: number) => {
+    setSidebarW((w) => Math.max(140, Math.min(400, w + dx)));
+  }, []);
+
+  const handleListResize = useCallback((dx: number) => {
+    setListW((w) => Math.max(200, Math.min(500, w + dx)));
+  }, []);
 
   return (
     <div className="h-full flex flex-col">
@@ -146,13 +159,17 @@ export default function HomePage() {
         </div>
       </header>
 
-      {/* Main Content */}
+      {/* Main Content — 3-panel resizable layout */}
       <div className="flex flex-1 overflow-hidden relative">
         {sidebarOpen && (
           <div className="fixed inset-0 bg-black/30 z-30 md:hidden" onClick={() => setSidebarOpen(false)} />
         )}
 
-        <div className={`${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 transition-transform duration-200 fixed md:static z-40 md:z-auto h-full`}>
+        {/* Sidebar */}
+        <div
+          className={`${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 transition-transform duration-200 fixed md:static z-40 md:z-auto h-full`}
+          style={{ width: sidebarW }}
+        >
           <Sidebar
             selected={category}
             onSelect={(code) => { handleCategorySelect(code); setSidebarOpen(false); }}
@@ -165,8 +182,16 @@ export default function HomePage() {
           />
         </div>
 
+        {/* Divider: Sidebar | DocList */}
+        <div className="hidden md:block">
+          <Divider onResize={handleSidebarResize} />
+        </div>
+
         {/* Doc List */}
-        <div className="w-[340px] min-w-[220px] flex flex-col border-r border-gray-200 bg-gray-50 flex-shrink-0 overflow-hidden">
+        <div
+          className="flex flex-col border-r border-gray-200 bg-gray-50 flex-shrink-0 overflow-hidden"
+          style={{ width: listW, minWidth: 200 }}
+        >
           <DocList
             items={items}
             total={total}
@@ -180,12 +205,14 @@ export default function HomePage() {
           />
         </div>
 
-        {/* Detail + Quick AI panel */}
+        {/* Divider: DocList | ContentPanel */}
+        <Divider onResize={handleListResize} />
+
+        {/* Content Panel + optional Quick AI panel */}
         <div className="flex flex-1 overflow-hidden">
-          <DocDetail
+          <ContentPanel
             item={selectedItem}
             tab={tab}
-            onClose={() => setSelectedItem(null)}
             token={auth.token}
             onRequestLogin={requestLogin}
           />

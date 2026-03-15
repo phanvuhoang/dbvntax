@@ -27,6 +27,7 @@ export interface Document {
   source?: string;
   score?: number;
   hieu_luc_index?: HieuLucIndex;
+  noi_dung?: string;
   tom_tat?: string;
   keywords?: string[];
   p2?: string;

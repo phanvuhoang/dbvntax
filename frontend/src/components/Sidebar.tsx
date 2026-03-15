@@ -30,7 +30,7 @@ export default function Sidebar({
     : CATEGORIES.map((c) => ({ ...c, count: 0 }));
 
   return (
-    <aside className="w-48 min-w-[140px] bg-white border-r border-gray-200 overflow-y-auto flex-shrink-0 hidden md:block">
+    <aside className="w-full h-full bg-white border-r border-gray-200 overflow-y-auto">
       {/* Danh mục */}
       <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-wider px-3 pt-3 pb-2">
         Sắc thuế
