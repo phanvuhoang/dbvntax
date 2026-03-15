@@ -238,7 +238,7 @@ async def cong_van_list(
     db: AsyncSession = Depends(get_db),
 ):
     results, total = await list_cong_van(db, q, sac_thue, nguon, limit, offset)
-    return {"total": total, "results": results}
+    return {"total": total, "items": results}
 
 @app.get("/api/cong_van/{cv_id}")
 async def cv_detail(cv_id: int, db: AsyncSession = Depends(get_db)):
