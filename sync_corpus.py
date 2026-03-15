@@ -18,6 +18,44 @@ import re
 import subprocess
 import sys
 from datetime import datetime, timezone
+from html.parser import HTMLParser
+from pathlib import Path
+
+
+# ── HTML → plain text ─────────────────────────────────────────────────────────
+class _TextExtractor(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self._text = []
+        self._skip = False
+    def handle_starttag(self, tag, attrs):
+        if tag in ('script', 'style', 'nav', 'header', 'footer'):
+            self._skip = True
+    def handle_endtag(self, tag):
+        if tag in ('script', 'style', 'nav', 'header', 'footer'):
+            self._skip = False
+    def handle_data(self, data):
+        if not self._skip:
+            self._text.append(data)
+
+def html_to_text(html: str) -> str:
+    p = _TextExtractor()
+    try:
+        p.feed(html)
+    except Exception:
+        pass
+    return re.sub(r'\s+', ' ', ' '.join(p._text)).strip()
+
+def read_html_content(github_path: str) -> str:
+    """Đọc HTML file từ corpus và convert sang plain text."""
+    fpath = Path(CORPUS_DIR) / 'docs' / github_path
+    if not fpath.exists():
+        return ''
+    try:
+        html = fpath.read_text(encoding='utf-8', errors='ignore')
+        return html_to_text(html)
+    except Exception:
+        return ''
 
 # ── Config ────────────────────────────────────────────────────────────────────
 DB_CONTAINER  = 'i11456c94loppyu9vzmgyb44'
@@ -234,14 +272,15 @@ ON CONFLICT (link_nguon) DO UPDATE SET
             else:  cv_err += 1; print(f'  CV ERR: {name[:50]} | {err}')
         else:
             # → documents table, upsert by github_path
+            noi_dung = read_html_content(github_p) if not dry_run else ''
             sql = f"""
 INSERT INTO documents
     (so_hieu, ten, loai, ngay_ban_hanh, tinh_trang, sac_thue,
-     github_path, doc_type, importance, import_date, keywords)
+     github_path, doc_type, importance, import_date, keywords, noi_dung)
 VALUES
     ({esc(so_hieu)}, {esc(name)}, {esc(loai)}, {ngay_sql},
      'con_hieu_luc', {pg_arr(sac_thue)},
-     {esc(github_p)}, 'vanban', {importance}, NOW(), '{{}}'::text[])
+     {esc(github_p)}, 'vanban', {importance}, NOW(), '{{}}'::text[], {esc(noi_dung)})
 ON CONFLICT (github_path) DO UPDATE SET
     so_hieu       = EXCLUDED.so_hieu,
     ten           = EXCLUDED.ten,
@@ -249,7 +288,10 @@ ON CONFLICT (github_path) DO UPDATE SET
     ngay_ban_hanh = EXCLUDED.ngay_ban_hanh,
     sac_thue      = EXCLUDED.sac_thue,
     importance    = CASE WHEN documents.importance = EXCLUDED.importance THEN documents.importance
-                         ELSE EXCLUDED.importance END
+                         ELSE EXCLUDED.importance END,
+    noi_dung      = CASE WHEN (documents.noi_dung IS NULL OR documents.noi_dung = '')
+                         THEN EXCLUDED.noi_dung
+                         ELSE documents.noi_dung END
 """
             ok, err = psql(sql, dry_run)
             if ok: doc_ok += 1

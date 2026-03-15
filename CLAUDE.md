@@ -1,23 +1,21 @@
 # CLAUDE.md — dbvntax Sprint 2 Brief
-> Version: 2 | Date: 2026-03-15 | Author: ThanhAI
+> Version: 2.1 | Date: 2026-03-15 | Author: ThanhAI
 
 ---
 
-## ⚠️ Ghi nhớ từ Sprint 1 — đọc trước khi code
+## ⚠️ Lesson learned Sprint 1 — đọc trước khi code
 
-Khi dùng optional chaining với arrays từ API/DB, **luôn dùng `?? []`** trước khi gọi `.length` hay `.map`:
-
+**Luôn guard arrays từ API bằng `?? []`:**
 ```typescript
-// SAI — crash nếu server trả null thay vì []
+// SAI — crash nếu server trả null
 index.hieu_luc.length
-entries.length
+entries.map(...)
 
 // ĐÚNG
 (index.hieu_luc ?? []).length
-(entries ?? []).length
+(entries ?? []).map(...)
 ```
-
-**Quy tắc chung:** Mọi array từ API đều phải guard bằng `?? []`. Mọi object từ API đều phải guard bằng `?.`.
+Áp dụng cho **tất cả** arrays từ API/DB trong toàn bộ codebase.
 
 ---
 
@@ -25,241 +23,195 @@ entries.length
 
 ---
 
-## 1. Content Panel — Xem nội dung văn bản trong app
+## 1. Content Panel — 3-panel layout, render nội dung từ DB
 
-### Hiện trạng
-- Nút "Xem văn bản gốc" đang mở link ra `vntaxdoc.gpt4vn.com` (tab mới)
-- `noi_dung` column trong DB **hoàn toàn trống** (chưa import)
-- File HTML gốc nằm trong repo `vn-tax-corpus`, path lưu trong `documents.github_path`
+### Context
+- `noi_dung` column trong DB đã có plain text content (159 docs, avg 56KB)
+- Content được import từ HTML files trong vn-tax-corpus (đã strip tags)
+- **Không dùng iframe** — render trực tiếp từ `GET /api/documents/{id}` (trả `noi_dung`)
+- Công văn cũng lưu `noi_dung_day_du` trong bảng `cong_van`
 
-### Yêu cầu
-Thay đổi layout từ 2 panel → **3 panel** (giống vntaxdoc.gpt4vn.com), tất cả có thể **kéo resize**:
+### Yêu cầu: Layout 3 panel resizable
 
 ```
-┌──────────┬─────────────────┬──────────────────────────────┐
-│ SIDEBAR  │   DANH SÁCH     │   NỘI DUNG VĂN BẢN           │
-│ (200px)  │   (280px)       │   (flex-1)                   │
-│          │                 │                              │
-│ Categories│  DocCard       │  [Hiển thị HTML content]     │
-│ Filters  │  DocCard       │                              │
-│          │  DocCard       │  (load từ vntaxdoc hoặc      │
-│          │  ...           │   iframe/fetch)              │
-│          │                 │                              │
-└──────────┴─────────────────┴──────────────────────────────┘
-  ↕ resize  ↕ resize          ↕ resize (drag dividers)
+┌──────────┬──────────────┬─────────────────────────────────────┐
+│ SIDEBAR  │  DANH SÁCH   │  NỘI DUNG VĂN BẢN                  │
+│ (200px)  │  (280px)     │  (flex-1, min 300px)               │
+│          │              │                                     │
+│ Category │  DocCard     │  [Tên văn bản - bold]              │
+│ Filters  │  DocCard     │  [Metadata: ngày, cơ quan...]      │
+│          │  ...         │  ─────────────────────────────────  │
+│          │              │  [Nội dung plain text, scrollable] │
+└──────────┴──────────────┴─────────────────────────────────────┘
+          ↕ drag divider   ↕ drag divider
 ```
 
-### Cách hiển thị content (dùng iframe)
-
-Vì `noi_dung` trong DB trống, load content từ static site:
+### Resize dividers (drag to resize)
 
 ```typescript
-// URL pattern cho iframe:
-const contentUrl = `https://vntaxdoc.gpt4vn.com/docs/${doc.github_path}`;
+// State
+const [sidebarW, setSidebarW] = useState(200);   // px
+const [listW, setListW] = useState(280);          // px
+// Content = flex-1 (remainder)
 
-// Component ContentPanel:
-<iframe
-  src={contentUrl}
-  className="w-full h-full border-0"
-  title={doc.ten}
-/>
+// Divider component
+function Divider({ onDrag }: { onDrag: (dx: number) => void }) {
+  const onMouseDown = (e: React.MouseEvent) => {
+    const startX = e.clientX;
+    const onMove = (ev: MouseEvent) => onDrag(ev.clientX - startX);
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  };
+  return <div onMouseDown={onMouseDown} className="w-1 cursor-col-resize bg-gray-200 hover:bg-primary flex-shrink-0 transition-colors" />;
+}
 ```
 
-### Resize dividers
-
-Dùng CSS + mouse drag (không cần thư viện):
+### ContentPanel component
 
 ```typescript
-// Lưu widths vào state
-const [sidebarW, setSidebarW] = useState(200);
-const [listW, setListW] = useState(280);
-// Content panel = flex-1 (phần còn lại)
+// Khi chưa chọn doc:
+<div className="flex-1 flex flex-col items-center justify-center text-gray-400 gap-2">
+  <span className="text-4xl">📄</span>
+  <span className="text-sm">Chọn văn bản để xem nội dung</span>
+</div>
 
-// Divider: <div onMouseDown={startDrag} className="w-1 cursor-col-resize bg-gray-200 hover:bg-primary" />
+// Khi đã chọn doc — gọi GET /api/documents/{id} lấy noi_dung:
+<div className="flex-1 flex flex-col overflow-hidden">
+  {/* Header */}
+  <div className="px-4 py-3 border-b border-gray-200 flex-shrink-0 bg-white">
+    <h2 className="font-semibold text-gray-800 text-sm leading-snug">{doc.ten}</h2>
+    <div className="flex gap-3 mt-1 text-xs text-gray-500">
+      <span>{formatDate(doc.ngay_ban_hanh)}</span>
+      <span>•</span>
+      <span>{doc.co_quan}</span>
+      <HieuLucBadge doc={doc} />
+    </div>
+  </div>
+  {/* Content */}
+  <div className="flex-1 overflow-y-auto px-4 py-3">
+    <pre className="whitespace-pre-wrap font-sans text-sm text-gray-700 leading-relaxed">
+      {doc.noi_dung}
+    </pre>
+  </div>
+  {/* Footer actions */}
+  <div className="px-4 py-2 border-t border-gray-100 flex gap-2 flex-shrink-0">
+    <button onClick={() => setShowAIPanel(true)} className="btn-primary text-xs">
+      🤖 Phân tích AI
+    </button>
+    <a href={`https://vntaxdoc.gpt4vn.com/docs/${doc.github_path}`}
+       target="_blank" rel="noopener"
+       className="btn-outline text-xs">
+      📄 Xem gốc ↗
+    </a>
+  </div>
+</div>
 ```
 
-### Khi chưa chọn văn bản
-Content panel hiển thị:
-```
-┌─────────────────────────────┐
-│         📄                  │
-│  Chọn văn bản để xem        │
-│  nội dung                   │
-└─────────────────────────────┘
-```
+### API note
+`GET /api/documents/{id}` đã trả về `noi_dung` (plain text, stripped HTML).
+Với công văn: `GET /api/cong_van/{id}` trả `noi_dung_day_du`.
 
 ---
 
 ## 2. Hiệu lực văn bản — hieu_luc_index
 
 ### Hiện trạng
-- `hieu_luc_index` column đã có trong DB (jsonb)
-- **Tất cả 159 docs đều có `hieu_luc = []`** (array rỗng, chưa extract)
-- Phần "Hiệu lực văn bản" trong DocDetail hiện ra trống
+- DB: 159 docs, tất cả `hieu_luc = []` (chưa extract)
+- **Script extract sẽ chạy riêng trên VPS sau** — không cần Claude Code làm
 
-### Yêu cầu: Script extract bằng AI (Claudible)
+### Việc Claude Code cần làm (frontend only)
 
-Viết file `scripts/extract_hieu_luc.py`:
-
-```python
-"""
-Extract hieu_luc_index cho 159 documents bằng Claudible Sonnet
-Đọc HTML từ vn-tax-corpus repo (đã clone tại /tmp/vntaxcorpus)
-Gọi Claudible để extract → lưu vào PostgreSQL
-"""
-
-CORPUS_DIR = "/tmp/vntaxcorpus/docs"   # HTML files
-DB_URL = os.environ["DATABASE_URL"]     # từ env
-CLAUDIBLE_KEY = os.environ["CLAUDIBLE_API_KEY"]
-CLAUDIBLE_URL = os.environ.get("CLAUDIBLE_BASE_URL", "https://claudible.io/v1")
-
-SYSTEM_PROMPT = """Bạn là chuyên gia pháp luật thuế Việt Nam.
-Nhiệm vụ: Đọc văn bản pháp luật và extract thông tin hiệu lực.
-Trả về JSON thuần túy, không có markdown, không giải thích."""
-
-USER_PROMPT = """Đọc phần cuối văn bản (Điều khoản thi hành, Điều khoản chuyển tiếp, Hiệu lực thi hành).
-Extract ra mảng hieu_luc[] theo format:
-
-{
-  "hieu_luc": [
-    {
-      "pham_vi": "Mô tả phạm vi áp dụng",
-      "tu_ngay": "YYYY-MM-DD hoặc null",
-      "den_ngay": "YYYY-MM-DD hoặc null (null = còn hiệu lực)",
-      "ghi_chu": "Ghi chú thêm nếu có"
-    }
-  ],
-  "van_ban_thay_the": ["NĐ 218/2013", ...],
-  "van_ban_sua_doi": ["NĐ 91/2022", ...],
-  "tom_tat_hieu_luc": "Tóm tắt 1-2 câu về hiệu lực"
-}
-
-Nội dung văn bản:
-{content}"""
-```
-
-**Logic extract:**
-
-```python
-for doc in all_docs:
-    # 1. Đọc HTML file
-    html_path = f"{CORPUS_DIR}/{doc['github_path']}"
-    if not os.path.exists(html_path): continue
-    
-    # 2. Extract text từ HTML (dùng BeautifulSoup)
-    soup = BeautifulSoup(open(html_path), 'html.parser')
-    text = soup.get_text()
-    
-    # 3. Lấy 3000 ký tự cuối (phần điều khoản thi hành thường ở cuối)
-    content = text[-3000:]
-    
-    # 4. Gọi Claudible
-    client = anthropic.Anthropic(api_key=CLAUDIBLE_KEY, base_url=CLAUDIBLE_URL)
-    response = client.messages.create(
-        model="claude-sonnet-4.6",
-        max_tokens=1000,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": USER_PROMPT.format(content=content)}]
-    )
-    
-    # 5. Parse JSON và update DB
-    result = json.loads(response.content[0].text)
-    # UPDATE documents SET hieu_luc_index = result WHERE id = doc.id
-```
-
-**Chạy script này trên VPS** (không phải trong container app):
-```bash
-cd /tmp/dbvntax-debug
-DATABASE_URL="postgresql+asyncpg://..." CLAUDIBLE_API_KEY="..." python3 scripts/extract_hieu_luc.py
-```
-
-### Frontend — hiển thị khi có data
-
-Phần HieuLucDetail đã có, chỉ cần đảm bảo:
+**DocDetail:** Thay vì ẩn section khi trống, hiện placeholder:
 
 ```typescript
-// DocDetail.tsx — chỉ hiện section này khi có data thực
-{doc.hieu_luc_index && (doc.hieu_luc_index.hieu_luc ?? []).length > 0 && (
+// DocDetail.tsx
+{doc.hieu_luc_index && (doc.hieu_luc_index.hieu_luc ?? []).length > 0 ? (
   <HieuLucDetail index={doc.hieu_luc_index} />
+) : (
+  <div className="mt-3 p-3 bg-gray-50 rounded text-sm text-gray-400 italic">
+    Chưa có thông tin hiệu lực chi tiết
+  </div>
 )}
+```
 
-// Nếu trống thì hiện placeholder
-{(!doc.hieu_luc_index || (doc.hieu_luc_index.hieu_luc ?? []).length === 0) && (
-  <p className="text-sm text-gray-400 italic">Chưa có thông tin hiệu lực chi tiết</p>
+**HieuLucDetail.tsx** — guard tất cả arrays:
+```typescript
+{(index.hieu_luc ?? []).length > 0 && (   // thay index.hieu_luc.length
+  ...
+  (index.hieu_luc ?? []).map(...)           // thay index.hieu_luc.map
 )}
+{(index.van_ban_thay_the ?? []).length > 0 && (...)}
+{(index.van_ban_sua_doi ?? []).length > 0 && (...)}
 ```
 
 ---
 
 ## 3. Auth & AI Analysis
 
-### Login credentials (đã có user trong DB)
-
+### Login
 ```
 Email:    vuhoang04@gmail.com
-Password: [anh tự set — xem mục Set Password bên dưới]
-Role:     admin
-Plan:     enterprise
+Password: Hoang@2026  (set qua API bên dưới)
 ```
 
-**Set password** (chạy 1 lần):
+**Set password** — gọi 1 lần:
 ```bash
-# Trong container hoặc qua API
-POST /api/auth/set-password
-body: { "email": "vuhoang04@gmail.com", "new_password": "your_password" }
+curl -X POST https://dbvntax.gpt4vn.com/api/auth/set-password \
+  -H "Content-Type: application/json" \
+  -d '{"email":"vuhoang04@gmail.com","new_password":"Hoang@2026"}'
 ```
 
-### AI features đã có trong backend
+### AI Analysis — đã có backend
 
 ```python
-# ai.py — đã implement đầy đủ:
-stream_quick_analysis(db, question, context_ids)   # streaming
-stream_analyze_doc(db, source, doc_id)             # streaming  
-do_factcheck(db, text_input)                       # sync
-do_related(db, source, doc_id)                     # sync
+# ai.py đã implement:
+POST /api/ai/quick-analysis    → streaming (requires auth)
+POST /api/ai/analyze-document  → streaming (requires auth)
+POST /api/ai/factcheck         → sync (requires auth)
+POST /api/ai/related           → sync (no auth needed)
 ```
 
-### Frontend — AI panel
+### Frontend AI — việc cần fix/verify
 
-Đã có `AIAnalysis.tsx` và `QuickAnalysis.tsx`. Kiểm tra và đảm bảo:
-
-1. **Auth gate:** Nếu chưa login → hiện "Đăng nhập để dùng AI" thay vì lỗi 401
-2. **Streaming display:** Dùng `fetch` với `ReadableStream`, append text từng chunk vào state
-3. **Error handling:** Nếu AI call fail → hiện message lỗi rõ ràng (không crash)
-
+1. **Auth gate:** Nếu chưa login → hiện nút "Đăng nhập để dùng AI"
+2. **Streaming pattern đúng:**
 ```typescript
-// Pattern đúng cho streaming:
 const response = await fetch('/api/ai/quick-analysis', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
-    'Authorization': `Bearer ${token}`,
+    'Authorization': `Bearer ${localStorage.getItem('vntaxdb_token')}`,
   },
   body: JSON.stringify({ question, context_doc_ids: [] }),
 });
-
 const reader = response.body!.getReader();
 const decoder = new TextDecoder();
 let result = '';
-
 while (true) {
   const { done, value } = await reader.read();
   if (done) break;
-  result += decoder.decode(value);
-  setStreamText(result);  // update UI real-time
+  result += decoder.decode(value, { stream: true });
+  setStreamText(result);
 }
 ```
+3. **Error handling:** 401 → prompt login; 500 → hiện lỗi, không crash
 
 ---
 
 ## ✅ Checklist Sprint 2
 
-1. [ ] 3-panel layout với resize dividers (sidebar / list / content)
-2. [ ] Content panel load iframe từ `https://vntaxdoc.gpt4vn.com/docs/{github_path}`
-3. [ ] `(array ?? [])` guard trên **tất cả** arrays từ API — không để `.length` trần
-4. [ ] HieuLucDetail: hiện "Chưa có dữ liệu" khi array rỗng
-5. [ ] Script `scripts/extract_hieu_luc.py` hoạt động (test với 3 docs trước)
-6. [ ] Auth gate cho AI features — redirect login thay vì crash
-7. [ ] Streaming AI response hiển thị real-time
-8. [ ] **Commit + push** (`git push origin main`)
-9. [ ] **Xóa CLAUDE.md** sau khi xong
+1. [ ] 3-panel layout với drag resize dividers
+2. [ ] ContentPanel render `noi_dung` từ DB (không dùng iframe)
+3. [ ] Công văn: ContentPanel render `noi_dung_day_du`
+4. [ ] `(array ?? [])` guard trên tất cả arrays từ API — toàn bộ codebase
+5. [ ] HieuLucDetail: hiện placeholder khi `hieu_luc = []`
+6. [ ] Auth modal hoạt động (login/register)
+7. [ ] AI analysis auth gate — redirect login thay vì 401 crash
+8. [ ] Streaming AI response real-time
+9. [ ] `npm run build` không lỗi, không warning
+10. [ ] **Commit + push** (`git push origin main`)
+11. [ ] **Xóa CLAUDE.md** sau khi push
