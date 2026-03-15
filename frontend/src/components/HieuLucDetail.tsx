@@ -12,7 +12,7 @@ export default function HieuLucDetail({ index }: { index: HieuLucIndex }) {
         </p>
       )}
 
-      {index.hieu_luc.length > 0 && (
+      {(index.hieu_luc ?? []).length > 0 && (
         <div className="overflow-x-auto">
           <table className="w-full text-sm border-collapse">
             <thead>
@@ -24,7 +24,7 @@ export default function HieuLucDetail({ index }: { index: HieuLucIndex }) {
               </tr>
             </thead>
             <tbody>
-              {index.hieu_luc.map((entry, i) => (
+              {(index.hieu_luc ?? []).map((entry, i) => (
                 <tr key={i} className={entry.den_ngay ? 'bg-red-50' : ''}>
                   <td className="p-2 border-b border-gray-100">{entry.pham_vi}</td>
                   <td className="p-2 border-b border-gray-100">

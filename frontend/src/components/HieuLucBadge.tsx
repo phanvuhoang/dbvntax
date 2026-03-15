@@ -9,7 +9,7 @@ export function getHieuLucStatus(doc: Document): HieuLucStatus {
     if (ts === 'het_hieu_luc' || ts.toLowerCase().includes('hết hiệu lực')) return 'inactive';
     return 'active';
   }
-  const entries = doc.hieu_luc_index.hieu_luc;
+  const entries = doc.hieu_luc_index.hieu_luc ?? [];
   if (!entries.length) return doc.hl === 0 ? 'inactive' : 'active';
   const allExpired = entries.every(e => e.den_ngay !== null);
   if (allExpired || doc.hl === 0) return 'inactive';
