@@ -182,7 +182,7 @@ export default function HomePage() {
         </div>
 
         {/* Divider: Sidebar | DocList */}
-        <div className="hidden md:block">
+        <div className="hidden md:flex h-full">
           <Divider onResize={handleSidebarResize} />
         </div>
 
