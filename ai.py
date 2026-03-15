@@ -1,9 +1,10 @@
 """
 AI module: Claudible streaming analysis, factcheck, related docs
+Claudible dùng OpenAI-compatible API (không phải Anthropic SDK).
 """
 import os, re, json
 from typing import AsyncGenerator
-import anthropic
+from openai import AsyncOpenAI
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from search import embed_text
@@ -12,8 +13,8 @@ CLAUDIBLE_KEY   = os.environ.get("CLAUDIBLE_API_KEY", "")
 CLAUDIBLE_URL   = os.environ.get("CLAUDIBLE_BASE_URL", "https://claudible.io/v1")
 CLAUDIBLE_MODEL = os.environ.get("CLAUDIBLE_MODEL", "claude-sonnet-4.6")
 
-def get_client():
-    return anthropic.Anthropic(api_key=CLAUDIBLE_KEY, base_url=CLAUDIBLE_URL)
+def get_client() -> AsyncOpenAI:
+    return AsyncOpenAI(api_key=CLAUDIBLE_KEY, base_url=CLAUDIBLE_URL)
 
 async def get_context_docs(db: AsyncSession, question: str, context_ids: list) -> tuple:
     docs_info = []
@@ -99,13 +100,16 @@ async def stream_quick_analysis(db: AsyncSession, question: str, context_ids: li
     yield {"type": "citations", "docs": citations}
     try:
         client = get_client()
-        with client.messages.stream(
+        stream = await client.chat.completions.create(
             model=CLAUDIBLE_MODEL,
             max_tokens=2048,
+            stream=True,
             messages=[{"role": "user", "content": prompt}],
-        ) as stream:
-            for chunk in stream.text_stream:
-                yield {"type": "text", "content": chunk}
+        )
+        async for chunk in stream:
+            delta = chunk.choices[0].delta.content
+            if delta:
+                yield {"type": "text", "content": delta}
     except Exception as e:
         yield {"type": "error", "content": f"Lỗi AI: {str(e)}"}
     yield {"type": "done"}
@@ -148,12 +152,16 @@ Loại: {d.get("loai","")} | Ngày: {str(d.get("ngay_ban_hanh",""))[:10]} | Tìn
 
     try:
         client = get_client()
-        with client.messages.stream(
-            model=CLAUDIBLE_MODEL, max_tokens=2048,
+        stream = await client.chat.completions.create(
+            model=CLAUDIBLE_MODEL,
+            max_tokens=2048,
+            stream=True,
             messages=[{"role": "user", "content": prompt}],
-        ) as stream:
-            for chunk in stream.text_stream:
-                yield {"type": "text", "content": chunk}
+        )
+        async for chunk in stream:
+            delta = chunk.choices[0].delta.content
+            if delta:
+                yield {"type": "text", "content": delta}
     except Exception as e:
         yield {"type": "error", "content": f"Lỗi AI: {str(e)}"}
     yield {"type": "done"}
