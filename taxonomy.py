@@ -17,6 +17,7 @@ SAC_THUE_LABELS = {
     "XNK": "Thuế Xuất nhập khẩu / Hải quan",
     "TAI_NGUYEN_DAT": "Thuế Tài nguyên / Tiền thuê đất",
     "MON_BAI_PHI": "Lệ phí Môn bài / Phí & Lệ phí",
+    "THUE_QT": "Thuế Quốc tế / Hiệp định thuế",
 }
 
 TAXONOMY = {
@@ -451,6 +452,57 @@ TAXONOMY = {
         ],
         "Khác": ["khác", "vướng mắc", "hướng dẫn chung", "tư vấn"],
     }
+    "THUE_QT": {
+        "Hiệp định tránh đánh thuế hai lần (DTA)": [
+            "Cơ sở thường trú (Permanent Establishment - PE)",
+            "Phân bổ quyền đánh thuế giữa các quốc gia",
+            "Miễn giảm thuế theo DTA",
+            "Beneficial owner & chống lạm dụng Hiệp định",
+            "Thủ tục xin áp dụng DTA & chứng nhận cư trú",
+            "Tham vấn song phương (MAP) & APA quốc tế",
+        ],
+        "Thuế tối thiểu toàn cầu (Pillar 2 / GMT)": [
+            "Quy tắc GloBE (Global Anti-Base Erosion)",
+            "Thuế tối thiểu 15% (QDMTT)",
+            "Income Inclusion Rule (IIR) & Undertaxed Profits Rule (UTPR)",
+            "Doanh nghiệp thuộc diện áp dụng (doanh thu >750 triệu EUR)",
+            "Nghị quyết 107/2023/QH15 & triển khai tại Việt Nam",
+            "Ưu đãi đầu tư trong bối cảnh Pillar 2",
+        ],
+        "Cơ sở thường trú (Permanent Establishment)": [
+            "PE theo mô hình OECD & UN",
+            "PE xây dựng & dịch vụ (time threshold)",
+            "Agency PE & Commissionnaire arrangement",
+            "PE trong kinh tế số & DAPE",
+            "Xác định thu nhập quy cho PE",
+        ],
+        "Miễn giảm thuế & tín thuế quốc tế": [
+            "Phương pháp miễn thuế (Exemption method)",
+            "Phương pháp tín thuế (Credit method)",
+            "Tín thuế nước ngoài (Foreign Tax Credit - FTC)",
+            "Giới hạn tín thuế & surplus/deficit",
+        ],
+        "Thuế TTTC & Tax Haven": [
+            "Kiểm soát công ty nước ngoài (CFC rules)",
+            "Hybrid mismatch arrangements",
+            "Thin capitalisation & lãi vay liên kết quốc tế",
+            "Substance requirements & shell company",
+        ],
+        "BEPS & chống tránh thuế quốc tế": [
+            "BEPS Action Plan (15 Actions) — tổng quan",
+            "Multilateral Instrument (MLI) & Việt Nam",
+            "Country-by-Country Reporting (CbCR)",
+            "Principal Purpose Test (PPT) & LOB clause",
+            "Chuyển giá quốc tế & arm\'s length principle",
+        ],
+        "Thuế thu nhập cá nhân quốc tế": [
+            "Xác định cư trú thuế cá nhân (183 ngày)",
+            "Tie-breaker rules theo DTA",
+            "Đánh thuế lương người nước ngoài tại VN",
+            "Tín thuế nước ngoài cho cá nhân",
+        ],
+        "Khác": ["khác", "treaty shopping", "offshore", "hướng dẫn chung", "tư vấn quốc tế"],
+    }
 }
 
 
@@ -479,6 +531,10 @@ CLASSIFICATION_RULES = {
                        "thuê mặt nước", "khoáng sản", "đất đai"],
     "MON_BAI_PHI": ["môn bài", "lệ phí môn bài", "phí", "lệ phí", "trước bạ",
                     "lệ phí trước bạ", "phí bảo vệ môi trường"],
+    "THUE_QT": ["hiệp định", "dta", "treaty", "thuế quốc tế", "pillar 2", "pillar2", "globe",
+                "beps", "oecd", "cfc", "cơ sở thường trú", "permanent establishment",
+                "tín thuế nước ngoài", "foreign tax credit", "qdmtt", "thuế tối thiểu toàn cầu",
+                "tax haven", "offshore", "cbcr", "mli", "nghị quyết 107"],
 }
 
 def classify_document(title: str, content: str = "") -> list[str]:
