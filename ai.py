@@ -1,6 +1,7 @@
 """
 AI module: Claudible streaming analysis, factcheck, related docs
 Claudible dùng OpenAI-compatible API (không phải Anthropic SDK).
+Context window: 200K tokens — cost $0 qua Claudible.
 """
 import os, re, json
 from typing import AsyncGenerator
@@ -13,68 +14,104 @@ CLAUDIBLE_KEY   = os.environ.get("CLAUDIBLE_API_KEY", "")
 CLAUDIBLE_URL   = os.environ.get("CLAUDIBLE_BASE_URL", "https://claudible.io/v1")
 CLAUDIBLE_MODEL = os.environ.get("CLAUDIBLE_MODEL", "claude-sonnet-4.6")
 
+# Max tokens cho output (Claudible 200K context window, cost $0)
+MAX_OUTPUT_TOKENS  = 8192   # output dài hơn, không bị ngắt
+MAX_CONTEXT_CHARS  = 80000  # ~60K tokens context — tận dụng 200K window
+MAX_DOC_CHARS      = 40000  # mỗi văn bản tối đa 40K chars (~30K tokens)
+MAX_CV_CHARS       = 20000  # công văn tối đa 20K chars
+
 def get_client() -> AsyncOpenAI:
     return AsyncOpenAI(api_key=CLAUDIBLE_KEY, base_url=CLAUDIBLE_URL)
 
+
 async def get_context_docs(db: AsyncSession, question: str, context_ids: list) -> tuple:
+    """Lấy context từ DB. Dùng full noi_dung nếu được chỉ định, semantic search nếu không."""
     docs_info = []
+
     if context_ids:
+        # Người dùng chỉ định document cụ thể → lấy full content
         for item in context_ids[:5]:
-            src = item.get("source", "documents")
+            src    = item.get("source", "documents")
             doc_id = item.get("id")
             if not doc_id:
                 continue
             if src == "documents":
-                r = await db.execute(text(
-                    "SELECT so_hieu, ten, tinh_trang, tom_tat, LEFT(noi_dung,3000) as nd FROM documents WHERE id=:id"
-                ), {"id": doc_id})
+                r = await db.execute(text("""
+                    SELECT so_hieu, ten, tinh_trang, tom_tat,
+                           LEFT(noi_dung, :maxc) as nd
+                    FROM documents WHERE id=:id
+                """), {"id": doc_id, "maxc": MAX_DOC_CHARS})
             elif src == "cong_van":
-                r = await db.execute(text(
-                    "SELECT so_hieu, ten, 'con_hieu_luc' as tinh_trang, ket_luan as tom_tat, LEFT(noi_dung_day_du,3000) as nd FROM cong_van WHERE id=:id"
-                ), {"id": doc_id})
+                r = await db.execute(text("""
+                    SELECT so_hieu, ten, 'con_hieu_luc' as tinh_trang,
+                           ket_luan as tom_tat,
+                           LEFT(noi_dung_day_du, :maxc) as nd
+                    FROM cong_van WHERE id=:id
+                """), {"id": doc_id, "maxc": MAX_CV_CHARS})
             else:
                 continue
             row = r.mappings().first()
             if row:
                 docs_info.append(dict(row))
     else:
+        # Semantic search → lấy nhiều docs liên quan
         emb = await embed_text(question)
         if emb:
             r = await db.execute(text("""
-                SELECT so_hieu, ten, tinh_trang, tom_tat, LEFT(noi_dung,2000) as nd,
+                SELECT so_hieu, ten, tinh_trang, tom_tat,
+                       LEFT(noi_dung, :maxc) as nd,
                        1-(embedding<=>:emb::vector) AS score
                 FROM documents WHERE embedding IS NOT NULL
                 ORDER BY embedding<=>:emb::vector LIMIT 5
-            """), {"emb": str(emb)})
+            """), {"emb": str(emb), "maxc": MAX_DOC_CHARS})
             docs_info.extend([dict(row) for row in r.mappings().all()])
+
             r2 = await db.execute(text("""
-                SELECT so_hieu, ten, 'con_hieu_luc' as tinh_trang, ket_luan as tom_tat,
-                       LEFT(noi_dung_day_du,2000) as nd,
+                SELECT so_hieu, ten, 'con_hieu_luc' as tinh_trang,
+                       ket_luan as tom_tat,
+                       LEFT(noi_dung_day_du, :maxc) as nd,
                        1-(embedding<=>:emb::vector) AS score
                 FROM cong_van WHERE embedding IS NOT NULL
                 ORDER BY embedding<=>:emb::vector LIMIT 3
-            """), {"emb": str(emb)})
-            docs_info.extend([dict(row) for row in r2.mappings().all()])
+            """), {"emb": str(emb), "maxc": MAX_CV_CHARS})
+            docs_info.extend([dict(row) for row in r.mappings().all()])
             docs_info.sort(key=lambda x: x.get("score", 0), reverse=True)
             docs_info = docs_info[:6]
         else:
+            # Fallback: full-text search
             r = await db.execute(text("""
-                SELECT so_hieu, ten, tinh_trang, tom_tat, LEFT(noi_dung,2000) as nd
+                SELECT so_hieu, ten, tinh_trang, tom_tat,
+                       LEFT(noi_dung, :maxc) as nd
                 FROM documents
                 WHERE to_tsvector('simple', coalesce(ten,'') || ' ' || coalesce(noi_dung,''))
                       @@ plainto_tsquery('simple', :q)
                 LIMIT 5
-            """), {"q": question})
+            """), {"q": question, "maxc": MAX_DOC_CHARS})
             docs_info.extend([dict(row) for row in r.mappings().all()])
 
+    # Build context string — tổng không quá MAX_CONTEXT_CHARS
     context_parts = []
-    citations = []
+    citations     = []
+    total_chars   = 0
+
     for d in docs_info[:6]:
-        so = d.get("so_hieu", "")
-        ten = d.get("ten", "")
-        status = "⚠️ HẾT HIỆU LỰC" if d.get("tinh_trang") == "het_hieu_luc" else "✅ Còn hiệu lực"
-        summary = d.get("tom_tat") or d.get("nd") or ""
-        context_parts.append(f"**{so} — {ten}** [{status}]\n{summary[:1500]}")
+        so      = d.get("so_hieu", "")
+        ten     = d.get("ten", "")
+        status  = "⚠️ ĐÃ HẾT HIỆU LỰC" if d.get("tinh_trang") == "het_hieu_luc" else "✅ Còn hiệu lực"
+        content = d.get("nd") or d.get("tom_tat") or ""
+
+        # Strip HTML tags nếu có
+        content = re.sub(r'<[^>]+>', ' ', content)
+        content = re.sub(r'\s+', ' ', content).strip()
+
+        # Cắt nếu tổng context quá lớn
+        remaining = MAX_CONTEXT_CHARS - total_chars
+        if remaining <= 500:
+            break
+        content = content[:remaining]
+        total_chars += len(content)
+
+        context_parts.append(f"### {so} — {ten} [{status}]\n{content}")
         citations.append({"so_hieu": so, "ten": ten, "tinh_trang": d.get("tinh_trang")})
 
     return "\n\n---\n\n".join(context_parts), citations
@@ -82,27 +119,30 @@ async def get_context_docs(db: AsyncSession, question: str, context_ids: list) -
 
 async def stream_quick_analysis(db: AsyncSession, question: str, context_ids: list) -> AsyncGenerator:
     context, citations = await get_context_docs(db, question, context_ids)
-    prompt = f"""Bạn là chuyên gia tư vấn thuế Việt Nam với 30 năm kinh nghiệm tại Big 4.
 
-**Câu hỏi:** {question}
+    prompt = f"""Bạn là chuyên gia tư vấn thuế Việt Nam với 30 năm kinh nghiệm tại Big 4 (KPMG/Deloitte/PwC/E&Y).
 
-**Văn bản và công văn liên quan:**
-{context if context else "(Không tìm thấy văn bản liên quan)"}
+## Câu hỏi của khách hàng:
+{question}
 
-**Yêu cầu:**
-- Phân tích ngắn gọn, súc tích (~1 trang A4)
-- Nêu rõ điều, khoản, điểm cụ thể
-- Chỉ trích dẫn văn bản có trong dữ liệu
-- Lưu ý nếu văn bản đã hết hiệu lực
-- Kết luận rõ ràng
-- Tiếng Việt chuyên nghiệp"""
+## Văn bản pháp luật và công văn liên quan:
+{context if context else "(Không tìm thấy văn bản liên quan trong database — hãy trả lời dựa trên kiến thức chung về thuế Việt Nam và lưu ý điều này)"}
+
+## Yêu cầu trả lời:
+- Phân tích đầy đủ, chuyên sâu — không bị giới hạn độ dài
+- Trích dẫn cụ thể: số điều, khoản, điểm của từng văn bản
+- Cảnh báo rõ nếu văn bản đã hết hiệu lực và văn bản thay thế
+- Nêu các trường hợp ngoại lệ, điều kiện áp dụng
+- Ví dụ thực tế minh họa khi phù hợp
+- Kết luận rõ ràng, actionable
+- Ngôn ngữ: Tiếng Việt chuyên nghiệp"""
 
     yield {"type": "citations", "docs": citations}
     try:
         client = get_client()
         stream = await client.chat.completions.create(
             model=CLAUDIBLE_MODEL,
-            max_tokens=2048,
+            max_tokens=MAX_OUTPUT_TOKENS,
             stream=True,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -116,14 +156,20 @@ async def stream_quick_analysis(db: AsyncSession, question: str, context_ids: li
 
 
 async def stream_analyze_doc(db: AsyncSession, source: str, doc_id: int) -> AsyncGenerator:
+    """Phân tích toàn bộ văn bản — dùng full noi_dung không cắt."""
     if source == "documents":
-        r = await db.execute(text(
-            "SELECT so_hieu, ten, loai, ngay_ban_hanh, tinh_trang, sac_thue, noi_dung FROM documents WHERE id=:id"
-        ), {"id": doc_id})
+        r = await db.execute(text("""
+            SELECT so_hieu, ten, loai, ngay_ban_hanh, tinh_trang, sac_thue,
+                   LEFT(noi_dung, :maxc) as noi_dung
+            FROM documents WHERE id=:id
+        """), {"id": doc_id, "maxc": MAX_DOC_CHARS})
     elif source == "cong_van":
-        r = await db.execute(text(
-            "SELECT so_hieu, ten, 'CV' as loai, ngay_ban_hanh, 'con_hieu_luc' as tinh_trang, sac_thue, noi_dung_day_du as noi_dung FROM cong_van WHERE id=:id"
-        ), {"id": doc_id})
+        r = await db.execute(text("""
+            SELECT so_hieu, ten, 'CV' as loai, ngay_ban_hanh,
+                   'con_hieu_luc' as tinh_trang, sac_thue,
+                   LEFT(noi_dung_day_du, :maxc) as noi_dung
+            FROM cong_van WHERE id=:id
+        """), {"id": doc_id, "maxc": MAX_CV_CHARS})
     else:
         yield {"type": "error", "content": "Nguồn không hợp lệ"}
         return
@@ -134,27 +180,50 @@ async def stream_analyze_doc(db: AsyncSession, source: str, doc_id: int) -> Asyn
         return
 
     d = dict(row)
-    status = "ĐÃ HẾT HIỆU LỰC" if d.get("tinh_trang") == "het_hieu_luc" else "Còn hiệu lực"
-    prompt = f"""Phân tích văn bản thuế sau:
+    status  = "ĐÃ HẾT HIỆU LỰC" if d.get("tinh_trang") == "het_hieu_luc" else "Còn hiệu lực"
+    # Strip HTML
+    noi_dung = re.sub(r'<[^>]+>', ' ', d.get("noi_dung") or "")
+    noi_dung = re.sub(r'\s+', ' ', noi_dung).strip()
 
-**{d.get("so_hieu","")} — {d.get("ten","")}**
-Loại: {d.get("loai","")} | Ngày: {str(d.get("ngay_ban_hanh",""))[:10]} | Tình trạng: {status}
+    prompt = f"""Bạn là chuyên gia tư vấn thuế Việt Nam với 30 năm kinh nghiệm tại Big 4.
+Hãy phân tích toàn diện văn bản pháp luật thuế sau:
 
-**Nội dung:**
-{(d.get("noi_dung") or "")[:5000]}
+## {d.get("so_hieu","(chưa có số hiệu)")} — {d.get("ten","")}
+- **Loại văn bản:** {d.get("loai","")}
+- **Ngày ban hành:** {str(d.get("ngay_ban_hanh",""))[:10]}
+- **Tình trạng hiệu lực:** {status}
 
-**Yêu cầu:**
-1. **Tóm tắt** — nội dung chính (3-5 câu)
-2. **Ý nghĩa pháp lý** — điểm mới/thay đổi quan trọng
-3. **Tác động thực tế** — ảnh hưởng đến DN/cá nhân
-4. **Điểm cần chú ý** — dễ hiểu sai, deadline, điều kiện
-5. **Trạng thái:** {status}"""
+## Toàn văn:
+{noi_dung if noi_dung else "(Nội dung chưa được import)"}
+
+## Yêu cầu phân tích — trả lời đầy đủ, không giới hạn độ dài:
+
+### 1. Tóm tắt nội dung
+Tóm tắt các quy định chính (5-10 câu).
+
+### 2. Điểm mới / Thay đổi quan trọng
+So với quy định trước, văn bản này thay đổi gì? Điểm nào là mới hoàn toàn?
+
+### 3. Phạm vi áp dụng
+Ai phải tuân thủ? Đối tượng nào được miễn/loại trừ?
+
+### 4. Các quy định quan trọng cần chú ý
+Liệt kê và giải thích từng điều khoản quan trọng (số điều, khoản, điểm cụ thể).
+
+### 5. Tác động thực tế
+Ảnh hưởng đến doanh nghiệp / cá nhân như thế nào? Ví dụ minh họa.
+
+### 6. Rủi ro & Điểm dễ sai
+Những điểm thường bị hiểu sai, deadline quan trọng, điều kiện dễ bỏ sót.
+
+### 7. Tình trạng hiệu lực
+{status}. Nếu hết hiệu lực: văn bản nào thay thế?"""
 
     try:
         client = get_client()
         stream = await client.chat.completions.create(
             model=CLAUDIBLE_MODEL,
-            max_tokens=2048,
+            max_tokens=MAX_OUTPUT_TOKENS,
             stream=True,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -212,7 +281,7 @@ async def do_related(db: AsyncSession, source: str, doc_id: int) -> dict:
         SELECT id, so_hieu, ten, loai, tinh_trang, sac_thue,
                1-(embedding<=>:emb::vector) AS score
         FROM documents WHERE id != :did AND embedding IS NOT NULL
-        ORDER BY embedding<=>:emb::vector LIMIT 5
+        ORDER BY embedding<=>:emb::vector LIMIT 8
     """), {"emb": emb_str, "did": doc_id if source == "documents" else -1})
     related = [{"id": d["id"], "so_hieu": d["so_hieu"], "ten": d["ten"],
                 "loai": d["loai"], "tinh_trang": d["tinh_trang"],
