@@ -19,9 +19,8 @@ export default function HomePage() {
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('');
   const [page, setPage] = useState(1);
-  const [loai, setLoai] = useState('');
-  const [hlFilter, setHlFilter] = useState('');
-  const [dateAt, setDateAt] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [selectedItem, setSelectedItem] = useState<Document | CongVan | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
@@ -37,9 +36,8 @@ export default function HomePage() {
   const searchResult = useSearch({
     q: query,
     sac_thue: category,
-    loai,
-    tinh_trang: hlFilter,
-    date_at: dateAt || undefined,
+    year_from: dateFrom ? parseInt(dateFrom.split('-')[0]) : undefined,
+    year_to: dateTo ? parseInt(dateTo.split('-')[0]) : undefined,
     mode: 'hybrid',
     limit: LIMIT,
     offset: (page - 1) * LIMIT,
@@ -48,6 +46,8 @@ export default function HomePage() {
   const congVanResult = useCongVan({
     q: query,
     sac_thue: category,
+    year_from: dateFrom ? parseInt(dateFrom.split('-')[0]) : undefined,
+    year_to: dateTo ? parseInt(dateTo.split('-')[0]) : undefined,
     limit: LIMIT,
     offset: (page - 1) * LIMIT,
   });
@@ -72,7 +72,9 @@ export default function HomePage() {
     setTab(t); setPage(1); setSelectedItem(null);
   }, []);
 
-  const resetPage = useCallback(() => setPage(1), []);
+  const handleDateRangeChange = useCallback((from: string, to: string) => {
+    setDateFrom(from); setDateTo(to); setPage(1);
+  }, []);
 
   const requestLogin = useCallback(() => setShowAuth(true), []);
 
@@ -167,18 +169,15 @@ export default function HomePage() {
 
         {/* Sidebar */}
         <div
-          className={`${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 transition-transform duration-200 fixed md:static z-40 md:z-auto h-full`}
+          className={`${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 transition-transform duration-200 fixed md:static z-40 md:z-auto h-full flex-shrink-0`}
           style={{ width: sidebarW }}
         >
           <Sidebar
             selected={category}
             onSelect={(code) => { handleCategorySelect(code); setSidebarOpen(false); }}
-            loai={loai}
-            onLoaiChange={(v) => { setLoai(v); resetPage(); }}
-            hlFilter={hlFilter}
-            onHlChange={(v) => { setHlFilter(v); resetPage(); }}
-            dateAt={dateAt}
-            onDateAtChange={(v) => { setDateAt(v); resetPage(); }}
+            dateFrom={dateFrom}
+            dateTo={dateTo}
+            onDateRangeChange={handleDateRangeChange}
           />
         </div>
 

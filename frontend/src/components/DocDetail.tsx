@@ -14,6 +14,26 @@ interface Props {
   onRequestLogin: () => void;
 }
 
+function TomTatBox({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="border border-gray-200 rounded mb-4 overflow-hidden">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 hover:bg-gray-100 transition text-left"
+      >
+        <span className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Tóm tắt</span>
+        <span className="text-gray-400 text-xs">{open ? '▲' : '▼'}</span>
+      </button>
+      {open && (
+        <div className="px-3 py-2 text-sm text-gray-600 leading-relaxed">
+          {text}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function DocDetail({ item, tab, onClose, token, onRequestLogin }: Props) {
   const [activeTab, setActiveTab] = useState<'info' | 'ai'>('info');
   const docQuery = useDocumentDetail(tab === 'vanban' && item ? item.id : null);
@@ -115,9 +135,7 @@ export default function DocDetail({ item, tab, onClose, token, onRequestLogin }:
           )}
 
           {(doc as Document).tom_tat && (
-            <div className="bg-gray-50 border-l-[3px] border-primary p-3 rounded text-sm text-gray-600 leading-relaxed mb-4">
-              <strong className="text-gray-700">Tóm tắt:</strong> {(doc as Document).tom_tat}
-            </div>
+            <TomTatBox text={(doc as Document).tom_tat!} />
           )}
 
           {tab === 'vanban' && doc.hieu_luc_index && <HieuLucDetail index={doc.hieu_luc_index} />}

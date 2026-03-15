@@ -24,11 +24,11 @@ const STATUS_CONFIG = {
   partial: { bg: 'bg-yellow-100', text: 'text-yellow-800', label: 'Hiệu lực một phần' },
 } as const;
 
-export default function HieuLucBadge({ doc }: { doc: Document }) {
+export default function HieuLucBadge({ doc, noTooltip }: { doc: Document; noTooltip?: boolean }) {
   const [showTooltip, setShowTooltip] = useState(false);
   const status = getHieuLucStatus(doc);
   const config = STATUS_CONFIG[status];
-  const summary = doc.hieu_luc_index?.tom_tat_hieu_luc;
+  const summary = !noTooltip ? doc.hieu_luc_index?.tom_tat_hieu_luc : undefined;
 
   return (
     <span

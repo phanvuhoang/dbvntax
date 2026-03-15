@@ -69,6 +69,8 @@ export function useDocumentDetail(id: number | null) {
 export interface CongVanParams {
   q?: string;
   sac_thue?: string;
+  year_from?: number;
+  year_to?: number;
   limit?: number;
   offset?: number;
 }
@@ -77,6 +79,8 @@ function buildCongVanURL(params: CongVanParams): string {
   const p = new URLSearchParams();
   if (params.q) p.set('q', params.q);
   if (params.sac_thue) p.set('sac_thue', params.sac_thue);
+  if (params.year_from) p.set('year_from', String(params.year_from));
+  if (params.year_to) p.set('year_to', String(params.year_to));
   p.set('limit', String(params.limit ?? 20));
   p.set('offset', String(params.offset ?? 0));
   return `/api/cong-van?${p}`;

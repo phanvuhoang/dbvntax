@@ -1,24 +1,17 @@
 import { useCategories } from '../api';
-import { CATEGORIES, LOAI_LABELS } from '../types';
-
-const LOAI_OPTIONS = ['LUAT', 'ND', 'TT', 'QD', 'NQ', 'VBHN', 'TTLT'] as const;
+import { CATEGORIES } from '../types';
 
 interface Props {
   selected: string;
   onSelect: (code: string) => void;
-  loai: string;
-  onLoaiChange: (loai: string) => void;
-  hlFilter: string;
-  onHlChange: (val: string) => void;
-  dateAt: string;
-  onDateAtChange: (val: string) => void;
+  dateFrom: string;
+  dateTo: string;
+  onDateRangeChange: (from: string, to: string) => void;
 }
 
 export default function Sidebar({
   selected, onSelect,
-  loai, onLoaiChange,
-  hlFilter, onHlChange,
-  dateAt, onDateAtChange,
+  dateFrom, dateTo, onDateRangeChange,
 }: Props) {
   const { data: apiCategories } = useCategories();
 
@@ -63,66 +56,35 @@ export default function Sidebar({
         </button>
       ))}
 
-      {/* Loại VB */}
+      {/* Giai đoạn ban hành */}
       <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-wider px-3 pt-4 pb-2">
-        Loại văn bản
+        Giai đoạn ban hành
       </h3>
-      <div className="px-3 pb-2 space-y-0.5">
-        {LOAI_OPTIONS.map((code) => (
+      <div className="px-3 pb-3 space-y-2">
+        <div>
+          <label className="text-[10px] text-gray-400 uppercase tracking-wide block mb-1">Từ ngày</label>
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => onDateRangeChange(e.target.value, dateTo)}
+            className="w-full px-2 py-1 border border-gray-200 rounded bg-white text-xs text-gray-600 focus:border-primary focus:outline-none"
+          />
+        </div>
+        <div>
+          <label className="text-[10px] text-gray-400 uppercase tracking-wide block mb-1">Đến ngày</label>
+          <input
+            type="date"
+            value={dateTo}
+            onChange={(e) => onDateRangeChange(dateFrom, e.target.value)}
+            className="w-full px-2 py-1 border border-gray-200 rounded bg-white text-xs text-gray-600 focus:border-primary focus:outline-none"
+          />
+        </div>
+        {(dateFrom || dateTo) && (
           <button
-            key={code}
-            onClick={() => onLoaiChange(loai === code ? '' : code)}
-            className={`w-full text-left px-2 py-1 text-xs rounded transition
-              ${loai === code ? 'bg-primary-light text-primary font-semibold' : 'text-gray-600 hover:bg-gray-50'}`}
+            onClick={() => onDateRangeChange('', '')}
+            className="w-full text-xs text-gray-400 hover:text-primary py-1 border border-gray-200 rounded hover:border-primary transition"
           >
-            {LOAI_LABELS[code]}
-          </button>
-        ))}
-      </div>
-
-      {/* Hiệu lực */}
-      <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-wider px-3 pt-3 pb-2">
-        Hiệu lực
-      </h3>
-      <div className="px-3 pb-2 space-y-0.5">
-        {[
-          { value: '', label: 'Tất cả' },
-          { value: 'con_hieu_luc', label: 'Còn hiệu lực' },
-          { value: 'het_hieu_luc', label: 'Hết hiệu lực' },
-        ].map((opt) => (
-          <label
-            key={opt.value}
-            className="flex items-center gap-1.5 px-2 py-1 text-xs text-gray-600 cursor-pointer hover:bg-gray-50 rounded"
-          >
-            <input
-              type="radio"
-              name="hl"
-              checked={hlFilter === opt.value}
-              onChange={() => onHlChange(opt.value)}
-              className="accent-primary w-3 h-3"
-            />
-            {opt.label}
-          </label>
-        ))}
-      </div>
-
-      {/* Tại ngày */}
-      <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-wider px-3 pt-3 pb-1">
-        Tại ngày
-      </h3>
-      <div className="px-3 pb-3">
-        <input
-          type="date"
-          value={dateAt}
-          onChange={(e) => onDateAtChange(e.target.value)}
-          className="w-full px-2 py-1 border border-gray-200 rounded bg-white text-xs text-gray-600 focus:border-primary focus:outline-none"
-        />
-        {dateAt && (
-          <button
-            onClick={() => onDateAtChange('')}
-            className="text-[10px] text-gray-400 hover:text-primary mt-1"
-          >
-            ↺ Xóa ngày
+            ↺ Reset bộ lọc
           </button>
         )}
       </div>

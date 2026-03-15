@@ -359,10 +359,11 @@ async def doc_detail(doc_id: int, db: AsyncSession = Depends(get_db)):
 @app.get("/api/cong-van")
 async def cong_van_list(
     q: str = "", sac_thue: Optional[str] = None, nguon: Optional[str] = None,
+    year_from: Optional[int] = None, year_to: Optional[int] = None,
     limit: int = Query(20, le=100), offset: int = 0,
     db: AsyncSession = Depends(get_db),
 ):
-    results, total = await list_cong_van(db, q, sac_thue, nguon, limit, offset)
+    results, total = await list_cong_van(db, q, sac_thue, nguon, limit, offset, year_from=year_from, year_to=year_to)
     return {"total": total, "items": results}
 
 @app.get("/api/cong_van/{cv_id}")

@@ -49,7 +49,7 @@ export default function DocCard({ doc, isActive, onClick }: Props) {
             {formatDate(doc.ngay_ban_hanh)}
           </span>
         )}
-        <HieuLucBadge doc={doc} />
+        <HieuLucBadge doc={doc} noTooltip />
         {(doc.sac_thue || []).map((s) => (
           <span
             key={s}
