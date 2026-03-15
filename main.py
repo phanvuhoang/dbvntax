@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from jose import JWTError, jwt
-from passlib.context import CryptContext
+import bcrypt as _bcrypt
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,10 +27,25 @@ logging.basicConfig(level=logging.INFO)
 JWT_SECRET = os.environ.get("JWT_SECRET", "vntaxdb-secret-2026")
 JWT_ALGO   = "HS256"
 JWT_EXP    = 30
-pwd_ctx    = CryptContext(schemes=["bcrypt"], deprecated="auto")
+def hash_password(password: str) -> str:
+    return _bcrypt.hashpw(password.encode(), _bcrypt.gensalt(12)).decode()
+
+def verify_password(password: str, hashed: str) -> bool:
+    try:
+        return _bcrypt.checkpw(password.encode(), hashed.encode())
+    except Exception:
+        return False
 
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@vntaxdb.com")
 ADMIN_PASS  = os.environ.get("ADMIN_PASSWORD", "VNTax@Admin2026")
+
+# SMTP config for password reset emails
+SMTP_HOST  = os.environ.get("SMTP_HOST", "smtp.mailgun.org")
+SMTP_PORT  = int(os.environ.get("SMTP_PORT", "465"))
+SMTP_USER  = os.environ.get("SMTP_USER", "thanhai@mg.gpt4vn.com")
+SMTP_PASS  = os.environ.get("SMTP_PASSWORD", "")
+EMAIL_FROM = os.environ.get("EMAIL_FROM", "ThanhAI <thanhai@mg.gpt4vn.com>")
+APP_URL    = os.environ.get("APP_URL", "https://dbvntax.gpt4vn.com")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -40,7 +55,7 @@ async def lifespan(app: FastAPI):
         async with AsyncSession(engine) as db:
             r = await db.execute(text("SELECT id, role FROM users WHERE email=:e"), {"e": ADMIN_EMAIL})
             row = r.mappings().first()
-            pw = pwd_ctx.hash(ADMIN_PASS)
+            pw = hash_password(ADMIN_PASS)
             if not row:
                 await db.execute(text("""
                     INSERT INTO users (email, password_hash, ho_ten, role, plan, query_limit)
@@ -56,6 +71,16 @@ async def lifespan(app: FastAPI):
             await db.commit()
     except Exception as e:
         log.error(f"Admin seed failed (non-fatal): {e}")
+    # DB migrations
+    try:
+        async with AsyncSession(engine) as db:
+            await db.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token VARCHAR(64)"))
+            await db.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires TIMESTAMPTZ"))
+            await db.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS tvpl_url TEXT"))
+            await db.commit()
+            log.info("DB migrations applied")
+    except Exception as e:
+        log.error(f"DB migration failed (non-fatal): {e}")
     yield
     await engine.dispose()
 
@@ -127,6 +152,13 @@ class SetPasswordBody(BaseModel):
     email: str
     new_password: str
 
+class ForgotPasswordBody(BaseModel):
+    email: str
+
+class ResetPasswordBody(BaseModel):
+    token: str
+    new_password: str
+
 class QuickAnalysisBody(BaseModel):
     question: str
     context_ids: Optional[List[dict]] = []
@@ -158,7 +190,7 @@ async def register(body: RegisterBody, db: AsyncSession = Depends(get_db)):
     r = await db.execute(text("SELECT id FROM users WHERE email=:e"), {"e": body.email})
     if r.first():
         raise HTTPException(400, "Email đã tồn tại")
-    pw = pwd_ctx.hash(body.password)
+    pw = hash_password(body.password)
     r2 = await db.execute(text("""
         INSERT INTO users (email, password_hash, ho_ten, role, plan, query_limit)
         VALUES (:e, :p, :n, 'user', 'free', 50) RETURNING id, role
@@ -174,7 +206,7 @@ async def login(body: LoginBody, db: AsyncSession = Depends(get_db)):
     u = r.mappings().first()
     if not u:
         raise HTTPException(401, "Email không tồn tại")
-    if not u["password_hash"] or not pwd_ctx.verify(body.password, u["password_hash"]):
+    if not u["password_hash"] or not verify_password(body.password, u["password_hash"]):
         raise HTTPException(401, "Sai mật khẩu")
     await db.execute(text("UPDATE users SET last_active=NOW() WHERE id=:id"), {"id": u["id"]})
     await db.commit()
@@ -187,12 +219,68 @@ async def me(user=Depends(get_current_user)):
 
 @app.post("/api/auth/set-password")
 async def set_password(body: SetPasswordBody, db: AsyncSession = Depends(get_db)):
-    pw = pwd_ctx.hash(body.new_password)
+    pw = hash_password(body.new_password)
     r = await db.execute(text("UPDATE users SET password_hash=:p WHERE email=:e RETURNING id"), {"p": pw, "e": body.email})
     if not r.first():
         raise HTTPException(404, "Email không tồn tại")
     await db.commit()
     return {"message": "Đặt mật khẩu thành công"}
+
+@app.post("/api/auth/forgot-password")
+async def forgot_password(body: ForgotPasswordBody, db: AsyncSession = Depends(get_db)):
+    """Generate reset token and send email. Always returns ok to not leak email existence."""
+    import secrets, smtplib
+    from email.mime.text import MIMEText
+    r = await db.execute(text("SELECT id FROM users WHERE email=:e"), {"e": body.email})
+    user = r.first()
+    if user:
+        token = secrets.token_urlsafe(32)
+        await db.execute(text("""
+            UPDATE users SET reset_token=:t, reset_token_expires=NOW() + INTERVAL '1 hour'
+            WHERE email=:e
+        """), {"t": token, "e": body.email})
+        await db.commit()
+        # Send email
+        if SMTP_PASS:
+            try:
+                reset_url = f"{APP_URL}/reset-password?token={token}"
+                msg = MIMEText(
+                    f"Xin chào,\n\nBạn đã yêu cầu đặt lại mật khẩu VNTaxDB.\n\n"
+                    f"Nhấn vào link sau để đặt mật khẩu mới:\n{reset_url}\n\n"
+                    f"Link có hiệu lực trong 1 giờ.\n\n"
+                    f"Nếu bạn không yêu cầu, vui lòng bỏ qua email này.\n\n"
+                    f"— VNTaxDB",
+                    "plain", "utf-8"
+                )
+                msg["Subject"] = "Đặt lại mật khẩu VNTaxDB"
+                msg["From"] = EMAIL_FROM
+                msg["To"] = body.email
+                with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as smtp:
+                    smtp.login(SMTP_USER, SMTP_PASS)
+                    smtp.send_message(msg)
+                log.info(f"Reset email sent to {body.email}")
+            except Exception as e:
+                log.error(f"Failed to send reset email: {e}")
+        else:
+            log.warning(f"SMTP not configured. Reset token for {body.email}: {token}")
+    return {"ok": True}
+
+@app.post("/api/auth/reset-password")
+async def reset_password(body: ResetPasswordBody, db: AsyncSession = Depends(get_db)):
+    r = await db.execute(text("""
+        SELECT id, email FROM users
+        WHERE reset_token=:t AND reset_token_expires > NOW()
+    """), {"t": body.token})
+    user = r.mappings().first()
+    if not user:
+        raise HTTPException(400, "Link đã hết hạn hoặc không hợp lệ")
+    pw = hash_password(body.new_password)
+    await db.execute(text("""
+        UPDATE users SET password_hash=:p, reset_token=NULL, reset_token_expires=NULL
+        WHERE id=:id
+    """), {"p": pw, "id": user["id"]})
+    await db.commit()
+    return {"message": "Đặt mật khẩu mới thành công. Vui lòng đăng nhập lại."}
 
 @app.get("/api/categories")
 async def categories(db: AsyncSession = Depends(get_db)):

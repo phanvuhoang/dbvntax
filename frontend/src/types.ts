@@ -23,6 +23,7 @@ export interface Document {
   sac_thue: string[];
   category_name?: string;
   github_path?: string;
+  tvpl_url?: string;
   snippet?: string;
   source?: string;
   score?: number;
