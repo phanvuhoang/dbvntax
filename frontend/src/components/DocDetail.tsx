@@ -132,7 +132,11 @@ export default function DocDetail({ item, tab, onClose, token, onRequestLogin }:
           {tab === 'congvan' && (detail as CongVan)?.noi_dung_day_du && (
             <div className="mt-4">
               <h3 className="text-sm font-semibold text-gray-700 mb-1">Nội dung</h3>
-              <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">{(detail as CongVan).noi_dung_day_du}</p>
+              <div
+                className="prose prose-sm max-w-none text-gray-600 leading-relaxed
+                           [&_p]:mb-2 [&_b]:font-semibold"
+                dangerouslySetInnerHTML={{ __html: (detail as CongVan).noi_dung_day_du ?? '' }}
+              />
             </div>
           )}
 

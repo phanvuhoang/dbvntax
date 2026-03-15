@@ -131,9 +131,15 @@ export default function ContentPanel({ item, tab, token, onRequestLogin }: Props
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-4 py-3">
         {content ? (
-          <pre className="whitespace-pre-wrap font-sans text-sm text-gray-700 leading-relaxed">
-            {content}
-          </pre>
+          <div
+            className="prose prose-sm max-w-none text-gray-700 leading-relaxed
+                       [&_table]:border-collapse [&_table]:w-full [&_table]:text-sm
+                       [&_td]:border [&_td]:border-gray-300 [&_td]:p-2
+                       [&_th]:border [&_th]:border-gray-300 [&_th]:p-2 [&_th]:bg-gray-50
+                       [&_p]:mb-3 [&_h1]:text-base [&_h1]:font-bold [&_h2]:text-base [&_h2]:font-bold
+                       [&_h3]:text-sm [&_h3]:font-semibold [&_b]:font-semibold"
+            dangerouslySetInnerHTML={{ __html: content ?? '' }}
+          />
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-gray-300 gap-2">
             <span className="text-3xl">📝</span>
