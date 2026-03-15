@@ -56,7 +56,7 @@ export default function DocList({
               <div
                 key={cv.id}
                 onClick={() => onSelect(cv)}
-                className={`px-3 py-2.5 border-b border-gray-100 cursor-pointer transition border-l-3
+                className={`px-3 py-2.5 border-b border-gray-100 cursor-pointer transition border-l-[3px]
                   ${cv.id === selectedId
                     ? 'border-l-primary bg-primary-light'
                     : 'border-l-transparent hover:bg-gray-50'}`}

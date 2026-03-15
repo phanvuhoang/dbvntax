@@ -22,7 +22,7 @@ export default function DocCard({ doc, isActive, onClick }: Props) {
   return (
     <div
       onClick={onClick}
-      className={`px-3 py-2.5 border-b border-gray-100 cursor-pointer transition border-l-3
+      className={`px-3 py-2.5 border-b border-gray-100 cursor-pointer transition border-l-[3px]
         ${isActive
           ? 'border-l-primary bg-primary-light'
           : 'border-l-transparent hover:bg-gray-50'}`}

@@ -49,7 +49,7 @@ export default function HomePage() {
 
   const items = tab === 'vanban'
     ? (searchResult.data?.results ?? [])
-    : (congVanResult.data?.results ?? []);
+    : (congVanResult.data?.items ?? []);
   const total = tab === 'vanban'
     ? (searchResult.data?.total ?? 0)
     : (congVanResult.data?.total ?? 0);

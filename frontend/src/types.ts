@@ -64,7 +64,7 @@ export interface SearchResponse {
 
 export interface CongVanResponse {
   total: number;
-  results: CongVan[];
+  items: CongVan[];
 }
 
 export interface HealthResponse {
