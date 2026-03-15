@@ -59,7 +59,7 @@ def build_filters(filters: dict) -> tuple:
 async def search_keyword(db: AsyncSession, q: str, filters: dict, limit: int, offset: int):
     where, params = build_filters(filters)
     if q:
-        tsq_clause = "to_tsvector('simple', coalesce(so_hieu,'') || ' ' || coalesce(ten,'') || ' ' || coalesce(tom_tat,'')) @@ plainto_tsquery('simple', :q)"
+        tsq_clause = "to_tsvector('simple', unaccent(coalesce(so_hieu,'') || ' ' || coalesce(ten,'') || ' ' || coalesce(tom_tat,''))) @@ plainto_tsquery('simple', unaccent(:q))"
         params["q"] = q
         if where:
             where += f" AND {tsq_clause}"
@@ -120,6 +120,12 @@ async def do_search(db: AsyncSession, q: str, type: str, filters: dict, mode: st
 
     if mode == "semantic":
         return await search_semantic(db, q, filters, limit, offset)
+    elif mode == "hybrid":
+        # Try semantic first, fallback to keyword if no results
+        results, total = await search_semantic(db, q, filters, limit, offset)
+        if total == 0:
+            return await search_keyword(db, q, filters, limit, offset)
+        return results, total
     else:
         return await search_keyword(db, q, filters, limit, offset)
 
@@ -142,7 +148,7 @@ async def list_cong_van(db: AsyncSession, q: str, sac_thue: str, nguon: str, lim
     where = ["1=1"]
     params = {}
     if q:
-        where.append("to_tsvector('simple', coalesce(so_hieu,'') || ' ' || ten) @@ plainto_tsquery('simple', :q)")
+        where.append("to_tsvector('simple', unaccent(coalesce(so_hieu,'') || ' ' || ten)) @@ plainto_tsquery('simple', unaccent(:q))")
         params['q'] = q
     if sac_thue:
         where.append(":sac_thue = ANY(sac_thue)")

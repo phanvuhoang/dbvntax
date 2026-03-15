@@ -28,8 +28,22 @@ async def get_db():
 
 
 async def init_db():
-    """Create tables and enable pgvector extension."""
+    """Create tables and enable pgvector + unaccent extensions."""
     async with engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS unaccent"))
         from models import Base as ModelBase  # noqa: F811
         await conn.run_sync(ModelBase.metadata.create_all)
+        # FTS indexes for Vietnamese diacritic-insensitive search
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS idx_documents_fts
+            ON documents USING GIN (
+                to_tsvector('simple', unaccent(coalesce(so_hieu,'') || ' ' || coalesce(ten,'') || ' ' || coalesce(tom_tat,'')))
+            )
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS idx_cong_van_fts
+            ON cong_van USING GIN (
+                to_tsvector('simple', unaccent(coalesce(so_hieu,'') || ' ' || ten))
+            )
+        """))

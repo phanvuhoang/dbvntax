@@ -74,9 +74,22 @@ async def lifespan(app: FastAPI):
     # DB migrations
     try:
         async with AsyncSession(engine) as db:
+            await db.execute(text("CREATE EXTENSION IF NOT EXISTS unaccent"))
             await db.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token VARCHAR(64)"))
             await db.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires TIMESTAMPTZ"))
             await db.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS tvpl_url TEXT"))
+            await db.execute(text("""
+                CREATE INDEX IF NOT EXISTS idx_documents_fts
+                ON documents USING GIN (
+                    to_tsvector('simple', unaccent(coalesce(so_hieu,'') || ' ' || coalesce(ten,'') || ' ' || coalesce(tom_tat,'')))
+                )
+            """))
+            await db.execute(text("""
+                CREATE INDEX IF NOT EXISTS idx_cong_van_fts
+                ON cong_van USING GIN (
+                    to_tsvector('simple', unaccent(coalesce(so_hieu,'') || ' ' || ten))
+                )
+            """))
             await db.commit()
             log.info("DB migrations applied")
     except Exception as e:
