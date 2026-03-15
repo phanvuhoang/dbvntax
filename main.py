@@ -302,16 +302,35 @@ async def categories(db: AsyncSession = Depends(get_db)):
         FROM documents
         GROUP BY code ORDER BY count DESC
     """))
-    SAC_NAMES = {
-        'QLT': 'Quản lý thuế', 'CIT': 'Thuế TNDN', 'TNDN': 'Thuế TNDN',
-        'VAT': 'Thuế GTGT', 'GTGT': 'Thuế GTGT', 'HDDT': 'Hóa đơn điện tử',
-        'HOA_DON': 'Hóa đơn', 'PIT': 'Thuế TNCN', 'TNCN': 'Thuế TNCN',
-        'SCT': 'Thuế TTĐB', 'TTDB': 'Thuế TTĐB', 'FCT': 'Thuế nhà thầu',
-        'NHA_THAU': 'Nhà thầu', 'TP': 'Giao dịch liên kết', 'GDLK': 'Giao dịch LK',
-        'HKD': 'Hộ kinh doanh',
+    # Canonical codes & display order (sidebar)
+    CANONICAL = [
+        ('QLT',     'Quản lý thuế'),
+        ('CIT',     'Thuế TNDN'),
+        ('VAT',     'Thuế GTGT'),
+        ('HDDT',    'Hóa đơn điện tử'),
+        ('PIT',     'Thuế TNCN'),
+        ('SCT',     'Thuế TTĐB'),
+        ('FCT',     'Thuế nhà thầu'),
+        ('TP',      'Giao dịch liên kết'),
+        ('HKD',     'Hộ kinh doanh'),
+        ('THUE_QT', 'Thuế Quốc tế'),
+    ]
+    # Alias map: raw DB code → canonical code
+    ALIAS = {
+        'TNDN': 'CIT', 'GTGT': 'VAT', 'HOA_DON': 'HDDT',
+        'TNCN': 'PIT', 'TTDB': 'SCT', 'NHA_THAU': 'FCT', 'GDLK': 'TP',
+        'TAI_NGUYEN': 'THUE_QT',
     }
-    return [{"code": row["code"], "name": SAC_NAMES.get(row["code"], row["code"]), "count": row["count"]}
-            for row in r.mappings().all()]
+    # Aggregate counts by canonical code
+    counts: dict = {}
+    for row in r.mappings().all():
+        code = ALIAS.get(row["code"], row["code"])
+        counts[code] = counts.get(code, 0) + row["count"]
+    return [
+        {"code": code, "name": name, "count": counts.get(code, 0)}
+        for code, name in CANONICAL
+        if counts.get(code, 0) > 0
+    ]
 
 @app.get("/api/search")
 async def search(
