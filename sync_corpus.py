@@ -100,6 +100,7 @@ P3_MAP = {
     '008.GIAO_DICH_LK': 'TP', '009.GIAO_DICH_LK': 'TP', '012._GIAO_DICH_LK': 'TP',
     'HOA DON': 'HDDT', 'HOA_DON': 'HDDT', 'HOA_DON_DIEN_TU': 'HDDT',
     '004.HOA_DON': 'HDDT', '021._HOA_DON': 'HDDT',
+    '002._HOA_DON_-_AN_CHI': 'HDDT', 'HOA_DON_-_AN_CHI': 'HDDT',
     'HO KINH DOANH': 'HKD', 'HKD': 'HKD',
     '009.HO_KINH_DOANH': 'HKD', '016._HO_KINH_DOANH': 'HKD', '018._HO_KINH_DOANH': 'HKD',
     'XUAT NHAP KHAU': 'XNK', 'XNK': 'XNK', 'HAI QUAN': 'XNK',
@@ -122,12 +123,18 @@ CLASSIFICATION_RULES = {
 }
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-def classify_sac_thue(name, tx, p3):
+def classify_sac_thue(name, tx, p3, path=''):
     if tx and tx in TX_MAP:
         return [TX_MAP[tx]]
+    # Check p3 field
     p3_up = (p3 or '').upper()
     for k, v in P3_MAP.items():
-        if k in p3_up:
+        if k.upper() in p3_up:
+            return [v]
+    # Check full path (catches folders not in p3 field)
+    path_up = (path or '').upper()
+    for k, v in P3_MAP.items():
+        if k.upper() in path_up:
             return [v]
     text = name.lower()
     result = [code for code, kws in CLASSIFICATION_RULES.items() if any(kw in text for kw in kws)]
@@ -224,8 +231,20 @@ def sync(dry_run=False, since_days=None):
     # 2. Load index
     print('\n[2] Load index.json...')
     data = json.load(open(CORPUS_INDEX))
-    docs = [d for d in data if d.get('p') and d.get('n') != 'EBOOK THUE 2026.htm']
-    print(f'  Total in corpus: {len(docs)}')
+    # Chỉ import docs trong 9 categories ưu tiên:
+    # - I.THUE/001._VBPQ_THUE/ (văn bản pháp quy 9 sắc thuế)
+    # - I.THUE/002._HOA_DON_-_AN_CHI/ (hóa đơn điện tử)
+    ALLOWED_PREFIXES = (
+        'I.THUE/001._VBPQ_THUE/',
+        'I.THUE/002._HOA_DON_-_AN_CHI/',
+    )
+    docs = [
+        d for d in data
+        if d.get('p')
+        and d.get('n') != 'EBOOK THUE 2026.htm'
+        and any(d['p'].startswith(pfx) for pfx in ALLOWED_PREFIXES)
+    ]
+    print(f'  Total in corpus: {len(data)} → filtered to priority 9 categories: {len(docs)}')
 
     # 3. Filter by changed paths if --since
     if since_days:
@@ -252,7 +271,7 @@ def sync(dry_run=False, since_days=None):
 
         so_hieu   = extract_so_hieu(name) or None
         ngay      = parse_date(id_val)
-        sac_thue  = classify_sac_thue(name, tx, p3)
+        sac_thue  = classify_sac_thue(name, tx, p3, path=github_p)
         importance = IMPORTANCE_MAP.get(loai, 3)
 
         ngay_sql  = esc(ngay) + '::date' if ngay else 'NULL'
