@@ -25,6 +25,7 @@ export default function HomePage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
   const [showAI, setShowAI] = useState(false);
+  const [selectedChuDe, setSelectedChuDe] = useState('');
 
   // Resizable panel widths
   const [sidebarW, setSidebarW] = useState(200);
@@ -46,6 +47,7 @@ export default function HomePage() {
   const congVanResult = useCongVan({
     q: query,
     sac_thue: category,
+    chu_de: selectedChuDe,
     year_from: dateFrom ? parseInt(dateFrom.split('-')[0]) : undefined,
     year_to: dateTo ? parseInt(dateTo.split('-')[0]) : undefined,
     limit: LIMIT,
@@ -66,10 +68,12 @@ export default function HomePage() {
 
   const handleCategorySelect = useCallback((code: string) => {
     setCategory(code); setPage(1); setSelectedItem(null);
+    setSelectedChuDe('');
   }, []);
 
   const handleTabChange = useCallback((t: Tab) => {
     setTab(t); setPage(1); setSelectedItem(null);
+    setSelectedChuDe('');
   }, []);
 
   const handleDateRangeChange = useCallback((from: string, to: string) => {
@@ -178,6 +182,14 @@ export default function HomePage() {
             dateFrom={dateFrom}
             dateTo={dateTo}
             onDateRangeChange={handleDateRangeChange}
+            tab={tab}
+            selectedChuDe={selectedChuDe}
+            onChuDeSelect={(cd) => {
+              setSelectedChuDe(cd);
+              setPage(1);
+              setSelectedItem(null);
+              setSidebarOpen(false);
+            }}
           />
         </div>
 

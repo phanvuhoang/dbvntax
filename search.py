@@ -148,7 +148,7 @@ async def get_article_by_id(db: AsyncSession, art_id: int):
     row = r.mappings().first()
     return dict(row) if row else None
 
-async def list_cong_van(db: AsyncSession, q: str, sac_thue: str, nguon: str, limit: int, offset: int, year_from: int = None, year_to: int = None):
+async def list_cong_van(db: AsyncSession, q: str, sac_thue: str, nguon: str, limit: int, offset: int, year_from: int = None, year_to: int = None, chu_de: str = None, tinh_trang: str = None):
     where = ["1=1"]
     params = {}
     if q:
@@ -166,6 +166,12 @@ async def list_cong_van(db: AsyncSession, q: str, sac_thue: str, nguon: str, lim
     if year_to:
         where.append("EXTRACT(YEAR FROM ngay_ban_hanh) <= :year_to")
         params["year_to"] = year_to
+    if chu_de:
+        where.append(":chu_de = ANY(chu_de)")
+        params["chu_de"] = chu_de
+    if tinh_trang:
+        where.append("tinh_trang = :tinh_trang")
+        params["tinh_trang"] = tinh_trang
     clause = 'WHERE ' + ' AND '.join(where)
     r_count = await db.execute(text(f'SELECT COUNT(*) FROM cong_van {clause}'), params)
     total = r_count.scalar()

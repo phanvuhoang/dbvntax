@@ -6,6 +6,7 @@ import type {
   CongVan,
   HealthResponse,
   Category,
+  CongVanTaxonomy,
 } from './types';
 
 const BASE = '';
@@ -69,6 +70,8 @@ export function useDocumentDetail(id: number | null) {
 export interface CongVanParams {
   q?: string;
   sac_thue?: string;
+  chu_de?: string;
+  tinh_trang?: string;
   year_from?: number;
   year_to?: number;
   limit?: number;
@@ -79,6 +82,8 @@ function buildCongVanURL(params: CongVanParams): string {
   const p = new URLSearchParams();
   if (params.q) p.set('q', params.q);
   if (params.sac_thue) p.set('sac_thue', params.sac_thue);
+  if (params.chu_de) p.set('chu_de', params.chu_de);
+  if (params.tinh_trang) p.set('tinh_trang', params.tinh_trang);
   if (params.year_from) p.set('year_from', String(params.year_from));
   if (params.year_to) p.set('year_to', String(params.year_to));
   p.set('limit', String(params.limit ?? 20));
@@ -108,6 +113,18 @@ export function useHealth() {
     queryKey: ['health'],
     queryFn: () => fetchJSON<HealthResponse>('/health'),
     staleTime: 300_000,
+  });
+}
+
+// Cong van taxonomy
+export function useCongVanTaxonomy(sacThue?: string) {
+  const url = sacThue
+    ? `/api/cong-van/taxonomy?sac_thue=${encodeURIComponent(sacThue)}`
+    : '/api/cong-van/taxonomy';
+  return useQuery<CongVanTaxonomy>({
+    queryKey: ['cong-van-taxonomy', sacThue ?? ''],
+    queryFn: () => fetchJSON<CongVanTaxonomy>(url),
+    staleTime: 5 * 60 * 1000,
   });
 }
 

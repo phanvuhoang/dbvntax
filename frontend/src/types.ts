@@ -122,3 +122,11 @@ export const SAC_THUE_MAP: Record<string, string> = {
   HKD: 'Hộ KD',
   THUE_QT: 'Thuế Quốc tế',
 };
+
+export interface TaxonomyItem {
+  chu_de: string;
+  count: number;
+}
+
+// key = sac_thue code (TNDN, GTGT, ...)
+export type CongVanTaxonomy = Record<string, TaxonomyItem[]>;

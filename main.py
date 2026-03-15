@@ -375,14 +375,54 @@ async def doc_detail(doc_id: int, db: AsyncSession = Depends(get_db)):
     if not d: raise HTTPException(404, "Không tìm thấy văn bản")
     return d
 
+@app.get("/api/cong-van/taxonomy")
+async def cong_van_taxonomy(
+    sac_thue: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    where_parts = ["cd IS NOT NULL AND cd != ''"]
+    params: dict = {}
+    if sac_thue:
+        where_parts.append(":sac_thue = ANY(sac_thue)")
+        params["sac_thue"] = sac_thue
+
+    where_clause = "WHERE " + " AND ".join(where_parts)
+
+    r = await db.execute(text(f"""
+        SELECT
+            st  AS sac_thue,
+            cd  AS chu_de,
+            COUNT(*) AS count
+        FROM cong_van
+        CROSS JOIN LATERAL unnest(sac_thue) AS st
+        CROSS JOIN LATERAL unnest(chu_de)   AS cd
+        {where_clause}
+        GROUP BY st, cd
+        ORDER BY st, count DESC
+    """), params)
+
+    rows = r.mappings().all()
+    result: dict[str, list] = {}
+    for row in rows:
+        st = row["sac_thue"]
+        if st not in result:
+            result[st] = []
+        result[st].append({"chu_de": row["chu_de"], "count": row["count"]})
+    return result
+
 @app.get("/api/cong-van")
 async def cong_van_list(
     q: str = "", sac_thue: Optional[str] = None, nguon: Optional[str] = None,
+    chu_de: Optional[str] = None, tinh_trang: Optional[str] = None,
     year_from: Optional[int] = None, year_to: Optional[int] = None,
     limit: int = Query(20, le=100), offset: int = 0,
     db: AsyncSession = Depends(get_db),
 ):
-    results, total = await list_cong_van(db, q, sac_thue, nguon, limit, offset, year_from=year_from, year_to=year_to)
+    results, total = await list_cong_van(
+        db, q, sac_thue, nguon, limit, offset,
+        year_from=year_from, year_to=year_to,
+        chu_de=chu_de, tinh_trang=tinh_trang,
+    )
     return {"total": total, "items": results}
 
 @app.get("/api/cong_van/{cv_id}")
