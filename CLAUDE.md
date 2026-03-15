@@ -5,6 +5,21 @@
 
 ---
 
+## ⚙️ Environment Variables (đã set trong Coolify, không cần thêm)
+
+```env
+DATABASE_URL=postgresql+asyncpg://legaldb_user:...@i11456c94loppyu9vzmgyb44:5432/postgres
+OPENAI_API_KEY=...          # dùng cho embeddings (text-embedding-3-small)
+CLAUDIBLE_API_KEY=...       # dùng cho AI analysis (claude-sonnet-4.6)
+CLAUDIBLE_BASE_URL=https://claudible.io/v1
+CLAUDIBLE_MODEL=claude-sonnet-4.6
+JWT_SECRET=vntaxdb-secret-2026-hoang
+```
+
+Backend AI dùng **Claudible** (không phải OpenAI trực tiếp) cho analysis/streaming. OpenAI chỉ dùng để tạo embeddings vector search.
+
+---
+
 ## 🎯 Mục tiêu
 
 Build frontend SPA hoàn chỉnh cho app tra cứu văn bản + công văn thuế VN.
@@ -251,6 +266,31 @@ Link xem gốc: `https://vntaxdoc.gpt4vn.com/docs/{github_path}`
 - Khi nhập → gọi `/api/documents?q=...` hoặc `/api/cong-van?q=...` tùy tab
 - Debounce 300ms
 - Khi có keyword → highlight matches trong ten/so_hieu
+
+---
+
+## 🔐 Auth UI
+
+AI endpoints (`/api/ai/*`) require Bearer token. Frontend cần:
+
+### Login / Register Modal
+- Trigger: click **"Đăng nhập"** button ở header (hiện khi chưa login)
+- Modal có 2 tabs: **Đăng nhập** | **Đăng ký**
+- Sau login thành công: lưu JWT vào `localStorage`, hiện tên user + nút **"Đăng xuất"** ở header
+- Token hết hạn (30 ngày) → redirect về login
+
+```typescript
+// Auth state
+const token = localStorage.getItem('vntaxdb_token');
+const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+// Khi gọi AI endpoint mà chưa login → hiện modal login thay vì báo lỗi
+```
+
+### Guest vs Logged-in
+- **Guest:** Có thể browse + search văn bản/công văn tự do
+- **Logged-in:** Thêm được tính năng AI analysis (tab "Phân tích AI" trong DocDetail + Quick Analysis box)
+- Nếu guest click vào AI feature → hiện thông báo "Đăng nhập để sử dụng phân tích AI" + nút login
 
 ---
 
