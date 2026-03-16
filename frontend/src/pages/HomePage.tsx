@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 import type { Document, CongVan } from '../types';
 import { useSearch, useCongVan, useHealth } from '../api';
 import { useAuth } from '../auth';
-import Sidebar from '../components/Sidebar';
+import Sidebar, { CATEGORY_TO_DB } from '../components/Sidebar';
 import SearchBar from '../components/SearchBar';
 import DocList from '../components/DocList';
 import ContentPanel from '../components/ContentPanel';
@@ -36,7 +36,7 @@ export default function HomePage() {
 
   const searchResult = useSearch({
     q: query,
-    sac_thue: category,
+    sac_thue: category ? (CATEGORY_TO_DB[category] ?? category) : undefined,
     year_from: dateFrom ? parseInt(dateFrom.split('-')[0]) : undefined,
     year_to: dateTo ? parseInt(dateTo.split('-')[0]) : undefined,
     mode: 'hybrid',
@@ -46,7 +46,7 @@ export default function HomePage() {
 
   const congVanResult = useCongVan({
     q: query,
-    sac_thue: category,
+    sac_thue: category ? (CATEGORY_TO_DB[category] ?? category) : undefined,
     chu_de: selectedChuDe,
     year_from: dateFrom ? parseInt(dateFrom.split('-')[0]) : undefined,
     year_to: dateTo ? parseInt(dateTo.split('-')[0]) : undefined,

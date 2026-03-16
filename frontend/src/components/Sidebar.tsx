@@ -3,7 +3,7 @@ import { useCategories, useCongVanTaxonomy } from '../api';
 import { CATEGORIES, SAC_THUE_MAP } from '../types';
 
 // Mapping từ CATEGORIES codes (CIT/VAT) sang DB codes (TNDN/GTGT)
-const CATEGORY_TO_DB: Record<string, string> = {
+export const CATEGORY_TO_DB: Record<string, string> = {
   CIT:     'TNDN',
   VAT:     'GTGT',
   PIT:     'TNCN',
