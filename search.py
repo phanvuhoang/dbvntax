@@ -39,7 +39,7 @@ def build_filters(filters: dict) -> tuple:
         where.append("EXTRACT(YEAR FROM ngay_ban_hanh) <= :year_to")
         params["year_to"] = filters["year_to"]
     if filters.get("tinh_trang"):
-        where.append("tinh_trang = :tinh_trang")
+        where.append("LOWER(tinh_trang) = LOWER(:tinh_trang)")
         params["tinh_trang"] = filters["tinh_trang"]
     if filters.get("hl") is not None:
         where.append("hl = :hl")
@@ -170,7 +170,7 @@ async def list_cong_van(db: AsyncSession, q: str, sac_thue: str, nguon: str, lim
         where.append(":chu_de = ANY(chu_de)")
         params["chu_de"] = chu_de
     if tinh_trang:
-        where.append("tinh_trang = :tinh_trang")
+        where.append("LOWER(tinh_trang) = LOWER(:tinh_trang)")
         params["tinh_trang"] = tinh_trang
     clause = 'WHERE ' + ' AND '.join(where)
     r_count = await db.execute(text(f'SELECT COUNT(*) FROM cong_van {clause}'), params)
