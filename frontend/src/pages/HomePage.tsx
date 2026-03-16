@@ -74,6 +74,7 @@ export default function HomePage() {
   const handleTabChange = useCallback((t: Tab) => {
     setTab(t); setPage(1); setSelectedItem(null);
     setSelectedChuDe('');
+    setCategory('');  // reset category khi đổi tab (tránh mismatch CIT vs TNDN)
   }, []);
 
   const handleDateRangeChange = useCallback((from: string, to: string) => {
