@@ -162,9 +162,7 @@ export default function ContentPanel({ item, tab, token, onRequestLogin }: Props
                        [&_td]:border [&_td]:border-gray-300 [&_td]:p-2
                        [&_th]:border [&_th]:border-gray-300 [&_th]:p-2 [&_th]:bg-gray-50
                        [&_p]:mb-3 [&_h1]:text-base [&_h1]:font-bold [&_h2]:text-base [&_h2]:font-bold
-                       [&_h3]:text-sm [&_h3]:font-semibold [&_b]:font-semibold
-                       [&_.right-col]:!hidden [&_.ct.scroll_right]:!hidden
-                       [&_.NoiDungChiaSe_TT_Hide]:!hidden [&_#divShare]:!hidden"
+                       [&_h3]:text-sm [&_h3]:font-semibold [&_b]:font-semibold"
             style={{ fontSize: `${fontSize}px` }}
             dangerouslySetInnerHTML={{ __html: content ?? '' }}
           />
