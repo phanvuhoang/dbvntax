@@ -364,7 +364,14 @@ async def documents_list(
     db: AsyncSession = Depends(get_db),
 ):
     offset = (page - 1) * limit
-    filters = {"sac_thue": category, "loai": loai, "hl": hl,
+    # Map canonical frontend code → actual DB sac_thue code
+    CANONICAL_TO_DB = {
+        'CIT': 'TNDN', 'VAT': 'GTGT', 'HDDT': 'HOA_DON',
+        'PIT': 'TNCN', 'SCT': 'TTDB', 'FCT': 'FCT',
+        'TP':  'GDLK', 'HKD': 'HKD',  'QLT': 'QLT', 'THUE_QT': 'THUE_QT',
+    }
+    db_sac_thue = CANONICAL_TO_DB.get(category, category) if category else None
+    filters = {"sac_thue": db_sac_thue, "loai": loai, "hl": hl,
                "year_from": year_from, "year_to": year_to}
     results, total = await do_search(db, q, "documents", filters, "keyword", limit, offset)
     return {"items": results, "total": total, "page": page, "limit": limit}
