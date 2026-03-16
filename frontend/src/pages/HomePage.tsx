@@ -74,6 +74,7 @@ export default function HomePage() {
   const handleTabChange = useCallback((t: Tab) => {
     setTab(t); setPage(1); setSelectedItem(null);
     setSelectedChuDe('');
+    setCategory('');
   }, []);
 
   const handleDateRangeChange = useCallback((from: string, to: string) => {
