@@ -1,80 +1,22 @@
-# BRIEF: ContentPanel Fixes — Hide TVPL Sidebar + Full Width + Open in New Tab
+# BRIEF: ContentPanel Fixes — Hide TVPL Sidebar + Full Width + Open HTML in New Tab
 
 **Repo:** phanvuhoang/dbvntax  
 **Date:** 2026-03-19  
-**Priority:** HIGH — app hiện đang DOWN (container bị drop khi attempt deploy), cần rebuild ngay
+**File duy nhất cần sửa:** `frontend/src/components/ContentPanel.tsx`
 
 ---
 
-## ⚠️ Tình trạng hiện tại
+## Fix 1: Ẩn sidebar TVPL + Fix content full width
 
-Container `h2hondf1axrj2fyx8jheyknl` đang DOWN. Sau khi Claude Code commit + push xong, Anh Hoàng sẽ trigger redeploy từ Coolify dashboard tại `cl.gpt4vn.com`.
+Trong `ContentPanel.tsx`, tìm đoạn `dangerouslySetInnerHTML` và update className của wrapper div.
 
----
-
-## Mục tiêu
-
-Sửa `frontend/src/components/ContentPanel.tsx` để:
-
-1. **Ẩn các phần thừa của TVPL** khi render HTML công văn (sidebar, share buttons, ads...)
-2. **Fix `#divContentDoc` bị fixed width 530px** → full width
-3. **Thêm button "Mở tab mới"** bên cạnh button "Xem nguồn" — cho cả Văn bản lẫn Công văn
-
----
-
-## Phân tích HTML từ TVPL
-
-Khi fetch công văn từ TVPL, HTML trả về có cấu trúc:
-
-```html
-<div id="ctl00_Content_ThongTinVB_pnlDocContent">
-  <!-- Content chính — CẦN GIỮ -->
-  <div class="cldivContentDocVn" id="divContentDoc" style="width: 530px; float: left; ...">
-    <div class="content1"> ... nội dung văn bản ... </div>
-  </div>
-
-  <!-- Sidebar TVPL — CẦN ẨN -->
-  <div class="NoiDungChiaSe" style="width: 190px; float: right; ...">
-    <!-- share buttons, bookmark, social -->
-  </div>
-  <div class="ulnhch ulnhch01"> ... </div>
-  <div class="ulnhch ulnhch02"> ... </div>
-  <div class="GgADS"> ... </div>
-  <div class="LawNote"> ... </div>
-  <div class="ykien SendFeedBack_vb"> ... </div>
-  <div class="ttlq"> ... </div>
-  <div class="download1"> ... </div>
-  <div id="hd-save-doc"> ... </div>
-  <div id="btTheoDoiHieuLuc"> ... </div>
-  <div id="btnSoSanhThayThe"> ... </div>
-  <div id="btnSongNgu"> ... </div>
-  <div id="TVNDWidget"> ... </div>
-</div>
+**Tìm dòng có:**
+```
+[&_.right-col]:!hidden [&_.ct.scroll_right]:!hidden
+[&_.NoiDungChiaSe_TT_Hide]:!hidden [&_#divShare]:!hidden
 ```
 
-**Vấn đề:**
-- `#divContentDoc` có `style="width: 530px; float: left;"` → content bị cắt, không dùng full width
-- `.NoiDungChiaSe` và các div khác là sidebar/ads của TVPL → cần ẩn
-
----
-
-## Fix 1: CSS Overrides trong className
-
-Trong `ContentPanel.tsx`, tìm đoạn `dangerouslySetInnerHTML` và update className của wrapper div:
-
-**Tìm:**
-```tsx
-className="prose max-w-none text-gray-700 leading-relaxed
-           [&_table]:border-collapse [&_table]:w-full [&_table]:text-sm
-           [&_td]:border [&_td]:border-gray-300 [&_td]:p-2
-           [&_th]:border [&_th]:border-gray-300 [&_th]:p-2 [&_th]:bg-gray-50
-           [&_p]:mb-3 [&_h1]:text-base [&_h1]:font-bold [&_h2]:text-base [&_h2]:font-bold
-           [&_h3]:text-sm [&_h3]:font-semibold [&_b]:font-semibold
-           [&_.right-col]:!hidden [&_.ct.scroll_right]:!hidden
-           [&_.NoiDungChiaSe_TT_Hide]:!hidden [&_#divShare]:!hidden"
-```
-
-**Thay bằng:**
+**Thay toàn bộ className thành:**
 ```tsx
 className="prose max-w-none text-gray-700 leading-relaxed
            [&_table]:border-collapse [&_table]:w-full [&_table]:text-sm
@@ -100,66 +42,85 @@ className="prose max-w-none text-gray-700 leading-relaxed
 
 ---
 
-## Fix 2: Thêm Button "Mở tab mới"
+## Fix 2: Button "Mở tab mới" — mở HTML content trong tab mới
 
-### Logic
+### Mục đích
 
-- Với **Văn bản (tab vanban):** mở `tvpl_url` nếu có, fallback là `link_tvpl`
-- Với **Công văn (tab congvan):** mở `link_nguon` (URL TVPL của công văn đó)
-- Nếu không có URL → button ẩn đi (giống "Xem nguồn" hiện tại)
+Button này mở **nội dung HTML đang render trong panel** vào một tab trình duyệt mới — không phải redirect ra TVPL hay bất kỳ URL nào. Tức là lấy `content` (HTML string từ DB) → tạo Blob URL → `window.open()`.
 
-### Vị trí
+Button có mặt trong **cả hai tab: Văn bản và Công văn**.
 
-Button đặt **bên cạnh** button "Xem nguồn" (hoặc "TVPL ↗") hiện có trong header của ContentPanel.
+### Implementation
 
-### Tìm vị trí trong code
-
-Tìm đoạn button "Xem nguồn" / "TVPL ↗" hiện tại — thường nằm trong phần header của ContentPanel sau phần metadata (so_hieu, ngay, sắc thuế). Thêm button mới ngay bên cạnh:
+**Thêm hàm helper** vào component (trước phần return):
 
 ```tsx
-{/* Button Mở tab mới */}
-{(() => {
-  const openUrl = tab === 'vanban'
-    ? ((doc as Document).tvpl_url || (doc as Document).link_tvpl)
-    : (cv as CongVan).link_nguon;
-  return openUrl ? (
-    <a
-      href={openUrl}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 hover:border-primary hover:text-primary transition text-gray-500"
-      title="Mở trong tab mới"
-    >
-      <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-      </svg>
-      Mở tab mới
-    </a>
-  ) : null;
-})()}
+const openContentInNewTab = () => {
+  if (!content) return;
+  const html = `<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${(tab === 'vanban' ? doc.ten : cv.ten) || 'Văn bản'}</title>
+  <style>
+    body { font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; padding: 24px 40px; max-width: 900px; margin: 0 auto; color: #333; }
+    table { border-collapse: collapse; width: 100%; }
+    td, th { border: 1px solid #ccc; padding: 6px 10px; }
+    p { margin-bottom: 10px; }
+    /* Hide TVPL sidebar elements */
+    .NoiDungChiaSe, .ulnhch, .GgADS, .LawNote, .ykien, .ttlq, .download1,
+    #hd-save-doc, #btTheoDoiHieuLuc, #btnSoSanhThayThe, #btnSongNgu, #TVNDWidget, .clr { display: none !important; }
+    #divContentDoc { float: none !important; width: 100% !important; margin: 0 !important; }
+  </style>
+</head>
+<body>
+${content}
+</body>
+</html>`;
+  const blob = new Blob([html], { type: 'text/html; charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  window.open(url, '_blank');
+};
 ```
 
-**Đặt ngay SAU** button "Xem nguồn" / "TVPL ↗" hiện có. Nếu không tìm thấy button đó, đặt cuối dòng action buttons trong header.
+**Thêm button** vào header của ContentPanel, ngay cạnh button "Xem nguồn" / "TVPL ↗" hiện có:
+
+```tsx
+{content && (
+  <button
+    onClick={openContentInNewTab}
+    className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 hover:border-primary hover:text-primary transition text-gray-500 whitespace-nowrap"
+    title="Mở nội dung trong tab mới"
+  >
+    <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+    </svg>
+    Mở tab mới
+  </button>
+)}
+```
+
+**Lưu ý vị trí:**
+- `content` đã được define ở dòng: `const content = tab === 'vanban' ? doc.noi_dung : cv.noi_dung_day_du;`
+- Button chỉ hiện khi `content` có giá trị (truthy) → tự động ẩn nếu chưa có nội dung
+- Đặt button trong phần header, cùng hàng với các action buttons khác (font size, AI, Xem nguồn)
 
 ---
 
-## Tóm tắt files cần sửa
+## Tóm tắt
 
-| File | Thay đổi |
-|------|----------|
-| `frontend/src/components/ContentPanel.tsx` | (1) Update className — thêm CSS hide selectors + fix divContentDoc width; (2) Thêm button "Mở tab mới" |
-
-**Chỉ 1 file duy nhất cần sửa.**
+| Fix | File | Mô tả |
+|-----|------|-------|
+| 1 | `ContentPanel.tsx` | CSS override: ẩn sidebar TVPL, fix `#divContentDoc` full width |
+| 2 | `ContentPanel.tsx` | Thêm `openContentInNewTab()` + button "Mở tab mới" (Blob URL) — có trong cả Văn bản lẫn Công văn |
 
 ---
 
 ## Sau khi xong
 
-1. Commit với message: `fix: hide TVPL sidebar, fix content width, add open-in-new-tab button`
+1. Commit: `fix: hide TVPL sidebar, fix content width, add open-html-in-new-tab button`
 2. Push lên `main`
 3. Xóa file BRIEF này
-4. Nhắn anh Hoàng: "Done, anh deploy trên Coolify nhé"
-
----
 
 _Brief by ThanhAI — 2026-03-19_
