@@ -1,4 +1,5 @@
 import type { Document, CongVan } from '../types';
+import { formatDate } from '../api';
 import DocCard from './DocCard';
 
 interface Props {
@@ -62,8 +63,13 @@ export default function DocList({
                     : 'border-l-transparent hover:bg-gray-50'}`}
               >
                 <div className="flex justify-between items-start">
-                  <span className="text-primary font-semibold text-sm">{cv.so_hieu || '—'}</span>
-                  <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-medium">CV</span>
+                  <div className="flex items-baseline gap-2 min-w-0">
+                    <span className="text-primary font-semibold text-sm shrink-0">{cv.so_hieu || '—'}</span>
+                    {cv.ngay_ban_hanh && (
+                      <span className="text-[11px] text-gray-400 shrink-0">{formatDate(cv.ngay_ban_hanh)}</span>
+                    )}
+                  </div>
+                  <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-medium shrink-0 ml-1">CV</span>
                 </div>
                 <p className="text-sm text-gray-700 mt-1 line-clamp-2 leading-snug">{cv.ten}</p>
                 {cv.co_quan && <p className="text-xs text-gray-400 mt-1">{cv.co_quan}</p>}

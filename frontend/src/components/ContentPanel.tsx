@@ -65,6 +65,34 @@ export default function ContentPanel({ item, tab, token, onRequestLogin }: Props
 
   const content = tab === 'vanban' ? doc.noi_dung : cv.noi_dung_day_du;
 
+  const openContentInNewTab = () => {
+    if (!content) return;
+    const html = `<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${(tab === 'vanban' ? doc.ten : cv.ten) || 'Văn bản'}</title>
+  <style>
+    body { font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; padding: 24px 40px; max-width: 900px; margin: 0 auto; color: #333; }
+    table { border-collapse: collapse; width: 100%; }
+    td, th { border: 1px solid #ccc; padding: 6px 10px; }
+    p { margin-bottom: 10px; }
+    /* Hide TVPL sidebar elements */
+    .NoiDungChiaSe, .ulnhch, .GgADS, .LawNote, .ykien, .ttlq, .download1,
+    #hd-save-doc, #btTheoDoiHieuLuc, #btnSoSanhThayThe, #btnSongNgu, #TVNDWidget, .clr { display: none !important; }
+    #divContentDoc { float: none !important; width: 100% !important; margin: 0 !important; }
+  </style>
+</head>
+<body>
+${content}
+</body>
+</html>`;
+    const blob = new Blob([html], { type: 'text/html; charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+  };
+
   if (showAI) {
     return (
       <div className="flex-1 flex flex-col overflow-hidden min-w-[300px]">
@@ -234,6 +262,18 @@ export default function ContentPanel({ item, tab, token, onRequestLogin }: Props
           >
             Xem nguồn ↗
           </a>
+        )}
+        {content && (
+          <button
+            onClick={openContentInNewTab}
+            className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 hover:border-primary hover:text-primary transition text-gray-500 whitespace-nowrap"
+            title="Mở nội dung trong tab mới"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+            </svg>
+            Mở tab mới
+          </button>
         )}
       </div>
     </div>
