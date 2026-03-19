@@ -1,8 +1,10 @@
-# BRIEF: ContentPanel Fixes — Hide TVPL Sidebar + Full Width + Open HTML in New Tab
+# BRIEF: UI Fixes — Sidebar Hide + Full Width + New Tab + Show Date in List
 
 **Repo:** phanvuhoang/dbvntax  
 **Date:** 2026-03-19  
-**File duy nhất cần sửa:** `frontend/src/components/ContentPanel.tsx`
+**Files cần sửa:**
+- `frontend/src/components/ContentPanel.tsx` (Fix 1, 2, 3)
+- `frontend/src/components/DocList.tsx` (Fix 4)
 
 ---
 
@@ -108,18 +110,73 @@ ${content}
 
 ---
 
-## Tóm tắt
+---
+
+## Fix 3 (mới): Hiển thị ngày ban hành trong danh sách Công văn — `DocList.tsx`
+
+### Bối cảnh
+
+- API `/api/cong-van` đã trả field `ngay_ban_hanh` (dạng `"2023-11-18"`)
+- `DocCard.tsx` (dùng cho Văn bản) đã có ngày ban hành — **không cần sửa**
+- `DocList.tsx` phần render Công văn **chưa có** — cần thêm
+
+### Tìm đoạn render Công văn trong `DocList.tsx`:
+
+```tsx
+<div className="flex justify-between items-start">
+  <span className="text-primary font-semibold text-sm">{cv.so_hieu || '—'}</span>
+  <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-medium">CV</span>
+</div>
+<p className="text-sm text-gray-700 mt-1 line-clamp-2 leading-snug">{cv.ten}</p>
+{cv.co_quan && <p className="text-xs text-gray-400 mt-1">{cv.co_quan}</p>}
+```
+
+### Thay bằng (thêm dòng ngày vào sau `so_hieu`):
+
+```tsx
+<div className="flex justify-between items-start">
+  <div className="flex items-baseline gap-2 min-w-0">
+    <span className="text-primary font-semibold text-sm shrink-0">{cv.so_hieu || '—'}</span>
+    {cv.ngay_ban_hanh && (
+      <span className="text-[11px] text-gray-400 shrink-0">{formatDate(cv.ngay_ban_hanh)}</span>
+    )}
+  </div>
+  <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-medium shrink-0 ml-1">CV</span>
+</div>
+<p className="text-sm text-gray-700 mt-1 line-clamp-2 leading-snug">{cv.ten}</p>
+{cv.co_quan && <p className="text-xs text-gray-400 mt-1">{cv.co_quan}</p>}
+```
+
+### Import `formatDate` nếu chưa có
+
+Đầu file `DocList.tsx`, kiểm tra import. Nếu chưa có `formatDate`:
+```tsx
+import { formatDate } from '../api';
+```
+
+### Kết quả trông như thế nào
+
+```
+3449/TCT-CS  10/08/2023                          [CV]
+Công văn 3449/TCT-CS 2023 hóa đơn
+TỔNG CỤC THUẾ
+```
+
+---
+
+## Tóm tắt tất cả fixes
 
 | Fix | File | Mô tả |
 |-----|------|-------|
 | 1 | `ContentPanel.tsx` | CSS override: ẩn sidebar TVPL, fix `#divContentDoc` full width |
 | 2 | `ContentPanel.tsx` | Thêm `openContentInNewTab()` + button "Mở tab mới" (Blob URL) — có trong cả Văn bản lẫn Công văn |
+| 3 | `DocList.tsx` | Thêm `ngay_ban_hanh` hiển thị bên cạnh `so_hieu` trong danh sách Công văn |
 
 ---
 
 ## Sau khi xong
 
-1. Commit: `fix: hide TVPL sidebar, fix content width, add open-html-in-new-tab button`
+1. Commit: `fix: hide TVPL sidebar, full width, open-html-in-new-tab, show date in CV list`
 2. Push lên `main`
 3. Xóa file BRIEF này
 
