@@ -176,6 +176,8 @@ export default function ContentPanel({ item, tab, token, onRequestLogin }: Props
                        [&_#btnSongNgu]:!hidden
                        [&_#TVNDWidget]:!hidden
                        [&_.clr]:!hidden
+                       [&_.info-red]:!hidden
+                       [&_p:has(>.info-red)]:!hidden
                        [&_#divContentDoc]:!float-none [&_#divContentDoc]:!w-full [&_#divContentDoc]:!mr-0"
             style={{ fontSize: `${fontSize}px` }}
             dangerouslySetInnerHTML={{ __html: content ?? '' }}
