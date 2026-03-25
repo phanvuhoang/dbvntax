@@ -268,6 +268,14 @@ export default function HomePage() {
                 isLoading={isLoading}
                 onSelect={(item) => setSelectedItem(item)}
                 onPageChange={setPage}
+                isAdmin={auth.user?.role === 'admin'}
+                token={auth.token}
+                onBulkDelete={(ids) => {
+                  setPage(1);
+                  if (selectedItem && ids.includes(selectedItem.id)) setSelectedItem(null);
+                  searchResult.refetch?.();
+                  congVanResult.refetch?.();
+                }}
               />
             )}
           </div>
@@ -335,6 +343,15 @@ export default function HomePage() {
                   isLoading={isLoading}
                   onSelect={(item) => { setSelectedItem(item); setMobileListOpen(false); }}
                   onPageChange={setPage}
+                  isAdmin={auth.user?.role === 'admin'}
+                  token={auth.token}
+                  onBulkDelete={(ids) => {
+                    setPage(1);
+                    setMobileListOpen(false);
+                    if (selectedItem && ids.includes(selectedItem.id)) setSelectedItem(null);
+                    searchResult.refetch?.();
+                    congVanResult.refetch?.();
+                  }}
                 />
               </div>
             </div>

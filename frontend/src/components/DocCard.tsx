@@ -7,6 +7,9 @@ interface Props {
   doc: Document;
   isActive: boolean;
   onClick: () => void;
+  deleteMode?: boolean;
+  isSelected?: boolean;
+  onToggle?: (id: number) => void;
 }
 
 const SAC_COLORS: Record<string, string> = {
@@ -16,7 +19,7 @@ const SAC_COLORS: Record<string, string> = {
   TP: '#4527a0', GDLK: '#4527a0', HKD: '#2e7d32',
 };
 
-export default function DocCard({ doc, isActive, onClick }: Props) {
+export default function DocCard({ doc, isActive, onClick, deleteMode, isSelected, onToggle }: Props) {
   const loaiLabel = LOAI_LABELS[doc.loai] || doc.loai || '';
 
   return (
@@ -27,15 +30,27 @@ export default function DocCard({ doc, isActive, onClick }: Props) {
           ? 'border-l-primary bg-primary-light'
           : 'border-l-transparent hover:bg-gray-50'}`}
     >
-      {/* Top row: so_hieu + loai badge */}
+      {/* Top row: checkbox (delete mode) + so_hieu + loai badge */}
       <div className="flex justify-between items-start gap-2">
-        <span className="text-primary font-semibold text-sm">{doc.so_hieu || '—'}</span>
+        <div className="flex items-start gap-2 min-w-0">
+          {deleteMode && (
+            <input
+              type="checkbox"
+              checked={!!isSelected}
+              onChange={e => { e.stopPropagation(); onToggle?.(doc.id); }}
+              onClick={e => e.stopPropagation()}
+              className="mt-0.5 accent-red-500 shrink-0"
+            />
+          )}
+          <span className="text-primary font-semibold text-sm">{doc.so_hieu || '—'}</span>
+        </div>
         {loaiLabel && (
           <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600 flex-shrink-0">
             {loaiLabel}
           </span>
         )}
       </div>
+
 
       {/* Title */}
       <p className="text-sm text-gray-700 mt-1 line-clamp-2 leading-snug">

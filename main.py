@@ -187,6 +187,10 @@ class RelatedBody(BaseModel):
     source: str
     id: int
 
+class BulkDeleteRequest(BaseModel):
+    ids: List[int]
+    source: str  # "documents" or "cong_van"
+
 class CorpusImportRequest(BaseModel):
     paths: List[str]
 
@@ -496,6 +500,25 @@ async def admin_stats(db: AsyncSession = Depends(get_db), user=Depends(require_a
           (SELECT COUNT(*) FROM query_log WHERE created_at > NOW() - INTERVAL '1 day') AS queries_today
     """))
     return dict(r.mappings().first())
+
+@app.delete("/api/admin/documents")
+async def bulk_delete_docs(
+    req: BulkDeleteRequest,
+    current_user=Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    if req.source not in ("documents", "cong_van"):
+        raise HTTPException(400, "Invalid source")
+    if not req.ids:
+        raise HTTPException(400, "No ids provided")
+    table = "documents" if req.source == "documents" else "cong_van"
+    result = await db.execute(
+        text(f"DELETE FROM {table} WHERE id = ANY(:ids) RETURNING id"),
+        {"ids": req.ids}
+    )
+    deleted = [r[0] for r in result.fetchall()]
+    await db.commit()
+    return {"deleted": deleted, "count": len(deleted)}
 
 @app.get("/api/admin/corpus-new")
 async def corpus_new_docs(
