@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import type { Document, CongVan } from '../types';
 import { LOAI_LABELS, SAC_THUE_MAP } from '../types';
 import { useDocumentDetail, useCongVanDetail, formatDate } from '../api';
@@ -19,8 +19,41 @@ export default function ContentPanel({ item, tab, token, onRequestLogin, onBack 
   const [fontSize, setFontSize] = useState(14);
   const [tomTatOpen, setTomTatOpen] = useState(false);
   const [hieuLucOpen, setHieuLucOpen] = useState(false);
+  const [headerVisible, setHeaderVisible] = useState(true);
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const lastScrollY = useRef(0);
+
   const docQuery = useDocumentDetail(tab === 'vanban' && item ? item.id : null);
   const cvQuery = useCongVanDetail(tab === 'congvan' && item ? item.id : null);
+
+  // Auto-hide header on mobile scroll
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const handler = () => {
+      const currentY = el.scrollTop;
+      if (currentY < 10) {
+        setHeaderVisible(true);
+      } else if (currentY < lastScrollY.current) {
+        setHeaderVisible(true);
+      } else if (currentY > lastScrollY.current + 5) {
+        setHeaderVisible(false);
+      }
+      lastScrollY.current = currentY;
+    };
+    el.addEventListener('scroll', handler, { passive: true });
+    return () => el.removeEventListener('scroll', handler);
+  }, [item]);
+
+  // Reset scroll + state when item changes
+  useEffect(() => {
+    setHeaderVisible(true);
+    setTomTatOpen(false);
+    setHieuLucOpen(false);
+    lastScrollY.current = 0;
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+  }, [item]);
 
   if (!item) {
     return (
@@ -98,8 +131,15 @@ ${content}
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden min-w-[300px]">
-      {/* Header — compact 2 lines */}
-      <div className="px-4 py-2 border-b border-gray-200 flex-shrink-0 bg-white">
+      {/* Header — auto-hides on mobile scroll */}
+      <div
+        className={`
+          px-4 border-b border-gray-200 flex-shrink-0 bg-white
+          transition-all duration-200 ease-in-out overflow-hidden
+          md:max-h-none md:opacity-100 md:py-2 md:border-b
+          ${headerVisible ? 'max-h-24 opacity-100 py-2' : 'max-h-0 opacity-0 border-b-0 py-0 px-0'}
+        `}
+      >
         {/* Line 1: back button (mobile) + title + font controls */}
         <div className="flex items-start gap-2">
           {onBack && (
@@ -159,35 +199,78 @@ ${content}
         </div>
       )}
 
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto px-4 py-3">
+      {/* Scroll area — content + TomTat + HieuLuc after */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3">
         {content ? (
-          <div
-            className="prose max-w-none text-gray-700 leading-relaxed
-                       [&_table]:border-collapse [&_table]:w-full [&_table]:text-sm
-                       [&_td]:border [&_td]:border-gray-300 [&_td]:p-2
-                       [&_th]:border [&_th]:border-gray-300 [&_th]:p-2 [&_th]:bg-gray-50
-                       [&_p]:mb-3 [&_h1]:text-base [&_h1]:font-bold [&_h2]:text-base [&_h2]:font-bold
-                       [&_h3]:text-sm [&_h3]:font-semibold [&_b]:font-semibold
-                       [&_.NoiDungChiaSe]:!hidden
-                       [&_.ulnhch]:!hidden
-                       [&_.GgADS]:!hidden
-                       [&_.LawNote]:!hidden
-                       [&_.ykien]:!hidden
-                       [&_.ttlq]:!hidden
-                       [&_.download1]:!hidden
-                       [&_#hd-save-doc]:!hidden
-                       [&_#btTheoDoiHieuLuc]:!hidden
-                       [&_#btnSoSanhThayThe]:!hidden
-                       [&_#btnSongNgu]:!hidden
-                       [&_#TVNDWidget]:!hidden
-                       [&_.clr]:!hidden
-                       [&_.info-red]:!hidden
-                       [&_p:has(>.info-red)]:!hidden
-                       [&_#divContentDoc]:!float-none [&_#divContentDoc]:!w-full [&_#divContentDoc]:!mr-0"
-            style={{ fontSize: `${fontSize}px` }}
-            dangerouslySetInnerHTML={{ __html: content ?? '' }}
-          />
+          <>
+            <div
+              className="prose max-w-none text-gray-700 leading-relaxed
+                         [&_table]:border-collapse [&_table]:w-full [&_table]:text-sm
+                         [&_td]:border [&_td]:border-gray-300 [&_td]:p-2
+                         [&_th]:border [&_th]:border-gray-300 [&_th]:p-2 [&_th]:bg-gray-50
+                         [&_p]:mb-3 [&_h1]:text-base [&_h1]:font-bold [&_h2]:text-base [&_h2]:font-bold
+                         [&_h3]:text-sm [&_h3]:font-semibold [&_b]:font-semibold
+                         [&_.NoiDungChiaSe]:!hidden
+                         [&_.ulnhch]:!hidden
+                         [&_.GgADS]:!hidden
+                         [&_.LawNote]:!hidden
+                         [&_.ykien]:!hidden
+                         [&_.ttlq]:!hidden
+                         [&_.download1]:!hidden
+                         [&_#hd-save-doc]:!hidden
+                         [&_#btTheoDoiHieuLuc]:!hidden
+                         [&_#btnSoSanhThayThe]:!hidden
+                         [&_#btnSongNgu]:!hidden
+                         [&_#TVNDWidget]:!hidden
+                         [&_.clr]:!hidden
+                         [&_.info-red]:!hidden
+                         [&_p:has(>.info-red)]:!hidden
+                         [&_#divContentDoc]:!float-none [&_#divContentDoc]:!w-full [&_#divContentDoc]:!mr-0"
+              style={{ fontSize: `${fontSize}px` }}
+              dangerouslySetInnerHTML={{ __html: content }}
+            />
+
+            {/* TomTat + HieuLuc after document content */}
+            <div className="mt-8 pt-6 border-t-2 border-dashed border-gray-200 space-y-3">
+              {(doc as Document).tom_tat && (
+                <div>
+                  <button
+                    onClick={() => setTomTatOpen(o => !o)}
+                    className="w-full flex items-center justify-between py-2 text-left group"
+                  >
+                    <span className="text-xs font-bold text-gray-400 uppercase tracking-widest group-hover:text-primary transition">
+                      📝 Tóm tắt văn bản
+                    </span>
+                    <span className="text-gray-300 text-xs">{tomTatOpen ? '▲' : '▼'}</span>
+                  </button>
+                  {tomTatOpen && (
+                    <div className="mt-2 text-sm text-gray-600 leading-relaxed bg-gray-50 rounded-lg p-4">
+                      {(doc as Document).tom_tat}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {tab === 'vanban' && doc.hieu_luc_index && (
+                <div>
+                  <button
+                    onClick={() => setHieuLucOpen(o => !o)}
+                    className="w-full flex items-center justify-between py-2 text-left group"
+                  >
+                    <span className="text-xs font-bold text-gray-400 uppercase tracking-widest group-hover:text-primary transition">
+                      ⚡ Hiệu lực chi tiết
+                    </span>
+                    <span className="text-gray-300 text-xs">{hieuLucOpen ? '▲' : '▼'}</span>
+                  </button>
+                  {hieuLucOpen && (
+                    <div className="mt-2">
+                      <HieuLucDetail index={doc.hieu_luc_index} />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </>
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-gray-300 gap-2">
             <span className="text-3xl">📝</span>
@@ -196,46 +279,8 @@ ${content}
         )}
       </div>
 
-      {/* Footer — Tóm tắt + Hiệu lực + Keywords + Actions */}
+      {/* Footer — Keywords + Actions */}
       <div className="border-t border-gray-100 flex-shrink-0">
-
-        {/* Tóm tắt accordion */}
-        {(doc as Document).tom_tat && (
-          <div className="border-b border-gray-100">
-            <button
-              onClick={() => setTomTatOpen(o => !o)}
-              className="w-full flex items-center justify-between px-4 py-2 hover:bg-gray-50 transition text-left"
-            >
-              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">📝 Tóm tắt</span>
-              <span className="text-gray-400 text-xs">{tomTatOpen ? '▲' : '▼'}</span>
-            </button>
-            {tomTatOpen && (
-              <div className="px-4 pb-3 text-sm text-gray-600 leading-relaxed max-h-40 overflow-y-auto">
-                {(doc as Document).tom_tat}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Hiệu lực chi tiết accordion */}
-        {tab === 'vanban' && doc.hieu_luc_index && (
-          <div className="border-b border-gray-100">
-            <button
-              onClick={() => setHieuLucOpen(o => !o)}
-              className="w-full flex items-center justify-between px-4 py-2 hover:bg-gray-50 transition text-left"
-            >
-              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">⚡ Hiệu lực chi tiết</span>
-              <span className="text-gray-400 text-xs">{hieuLucOpen ? '▲' : '▼'}</span>
-            </button>
-            {hieuLucOpen && (
-              <div className="px-4 pb-3 max-h-48 overflow-y-auto">
-                <HieuLucDetail index={doc.hieu_luc_index} />
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Keywords */}
         {(doc.keywords ?? []).length > 0 && (
           <div className="px-4 py-2 border-b border-gray-100 flex flex-wrap gap-1">
             {(doc.keywords ?? []).map((k, i) => (
@@ -244,7 +289,6 @@ ${content}
           </div>
         )}
 
-        {/* Action buttons */}
         <div className="px-4 py-2 flex gap-2 flex-wrap">
           <button
             onClick={() => setShowAI(true)}
