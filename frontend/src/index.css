@@ -11,6 +11,13 @@ body {
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
 }
 
+/* Allow text selection inside document content */
+.select-text,
+.select-text * {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }

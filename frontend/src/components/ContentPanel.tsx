@@ -150,7 +150,7 @@ ${content}
               ← Danh sách
             </button>
           )}
-          <h2 className="font-semibold text-gray-800 text-sm leading-snug flex-1 min-w-0">
+          <h2 className="font-semibold text-gray-800 text-sm leading-snug flex-1 min-w-0 select-text">
             {doc.ten || cv.ten}
           </h2>
           <div className="flex items-center gap-1 flex-shrink-0">
@@ -168,7 +168,7 @@ ${content}
           </div>
         </div>
         {/* Line 2: metadata */}
-        <div className="flex gap-2 mt-1 text-xs text-gray-500 items-center flex-wrap">
+        <div className="flex gap-2 mt-1 text-xs text-gray-500 items-center flex-wrap select-text">
           {doc.ngay_ban_hanh && <span>{formatDate(doc.ngay_ban_hanh)}</span>}
           {doc.loai && (
             <>
@@ -195,16 +195,16 @@ ${content}
       {tab === 'congvan' && cv.ket_luan && (
         <div className="px-4 mt-2 flex-shrink-0">
           <h3 className="text-sm font-semibold text-gray-700 mb-1">Kết luận</h3>
-          <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">{cv.ket_luan}</p>
+          <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap select-text">{cv.ket_luan}</p>
         </div>
       )}
 
       {/* Scroll area — content + TomTat + HieuLuc after */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 select-text">
         {content ? (
           <>
             <div
-              className="prose max-w-none text-gray-700 leading-relaxed
+              className="prose max-w-none text-gray-700 leading-relaxed select-text
                          [&_table]:border-collapse [&_table]:w-full [&_table]:text-sm
                          [&_td]:border [&_td]:border-gray-300 [&_td]:p-2
                          [&_th]:border [&_th]:border-gray-300 [&_th]:p-2 [&_th]:bg-gray-50
@@ -244,7 +244,7 @@ ${content}
                     <span className="text-gray-300 text-xs">{tomTatOpen ? '▲' : '▼'}</span>
                   </button>
                   {tomTatOpen && (
-                    <div className="mt-2 text-sm text-gray-600 leading-relaxed bg-gray-50 rounded-lg p-4">
+                    <div className="mt-2 text-sm text-gray-600 leading-relaxed bg-gray-50 rounded-lg p-4 select-text">
                       {(doc as Document).tom_tat}
                     </div>
                   )}

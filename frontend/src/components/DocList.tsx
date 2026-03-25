@@ -71,8 +71,8 @@ export default function DocList({
                   </div>
                   <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-medium shrink-0 ml-1">CV</span>
                 </div>
-                <p className="text-sm text-gray-700 mt-1 line-clamp-2 leading-snug">{cv.ten}</p>
-                {cv.co_quan && <p className="text-xs text-gray-400 mt-1">{cv.co_quan}</p>}
+                <p className="text-sm text-gray-700 mt-1 line-clamp-2 leading-snug select-text">{cv.ten}</p>
+                {cv.co_quan && <p className="text-xs text-gray-400 mt-1 select-text">{cv.co_quan}</p>}
               </div>
             );
           }
