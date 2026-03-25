@@ -6,34 +6,19 @@ import HieuLucBadge from './HieuLucBadge';
 import HieuLucDetail from './HieuLucDetail';
 import AIAnalysis from './AIAnalysis';
 
-function TomTatBox({ text }: { text: string }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="border border-gray-200 rounded mb-4 overflow-hidden">
-      <button
-        onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 hover:bg-gray-100 transition text-left"
-      >
-        <span className="text-xs font-semibold text-gray-600 uppercase tracking-wider">📝 Tóm tắt</span>
-        <span className="text-gray-400 text-xs">{open ? '▲' : '▼'}</span>
-      </button>
-      {open && (
-        <div className="px-3 py-2 text-sm text-gray-600 leading-relaxed">{text}</div>
-      )}
-    </div>
-  );
-}
-
 interface Props {
   item: Document | CongVan | null;
   tab: 'vanban' | 'congvan';
   token: string | null;
   onRequestLogin: () => void;
+  onBack?: () => void;
 }
 
-export default function ContentPanel({ item, tab, token, onRequestLogin }: Props) {
+export default function ContentPanel({ item, tab, token, onRequestLogin, onBack }: Props) {
   const [showAI, setShowAI] = useState(false);
   const [fontSize, setFontSize] = useState(14);
+  const [tomTatOpen, setTomTatOpen] = useState(false);
+  const [hieuLucOpen, setHieuLucOpen] = useState(false);
   const docQuery = useDocumentDetail(tab === 'vanban' && item ? item.id : null);
   const cvQuery = useCongVanDetail(tab === 'congvan' && item ? item.id : null);
 
@@ -78,7 +63,6 @@ export default function ContentPanel({ item, tab, token, onRequestLogin }: Props
     table { border-collapse: collapse; width: 100%; }
     td, th { border: 1px solid #ccc; padding: 6px 10px; }
     p { margin-bottom: 10px; }
-    /* Hide TVPL sidebar elements */
     .NoiDungChiaSe, .ulnhch, .GgADS, .LawNote, .ykien, .ttlq, .download1,
     #hd-save-doc, #btTheoDoiHieuLuc, #btnSoSanhThayThe, #btnSongNgu, #TVNDWidget, .clr { display: none !important; }
     #divContentDoc { float: none !important; width: 100% !important; margin: 0 !important; }
@@ -116,8 +100,16 @@ ${content}
     <div className="flex-1 flex flex-col overflow-hidden min-w-[300px]">
       {/* Header — compact 2 lines */}
       <div className="px-4 py-2 border-b border-gray-200 flex-shrink-0 bg-white">
-        {/* Line 1: title + font controls */}
+        {/* Line 1: back button (mobile) + title + font controls */}
         <div className="flex items-start gap-2">
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="shrink-0 text-xs text-primary hover:text-primary-dark font-medium mt-0.5"
+            >
+              ← Danh sách
+            </button>
+          )}
           <h2 className="font-semibold text-gray-800 text-sm leading-snug flex-1 min-w-0">
             {doc.ten || cv.ten}
           </h2>
@@ -135,7 +127,7 @@ ${content}
             >A+</button>
           </div>
         </div>
-        {/* Line 2: metadata in one row */}
+        {/* Line 2: metadata */}
         <div className="flex gap-2 mt-1 text-xs text-gray-500 items-center flex-wrap">
           {doc.ngay_ban_hanh && <span>{formatDate(doc.ngay_ban_hanh)}</span>}
           {doc.loai && (
@@ -158,20 +150,6 @@ ${content}
           )}
         </div>
       </div>
-
-      {/* Hiệu lực chi tiết — expandable, mặc định collapsed */}
-      {tab === 'vanban' && doc.hieu_luc_index && (
-        <div className="px-4 mt-2 flex-shrink-0">
-          <HieuLucDetail index={doc.hieu_luc_index} />
-        </div>
-      )}
-
-      {/* Tóm tắt — expandable, mặc định collapsed */}
-      {(doc as Document).tom_tat && (
-        <div className="px-4 flex-shrink-0">
-          <TomTatBox text={(doc as Document).tom_tat!} />
-        </div>
-      )}
 
       {/* Ket luan (cong van) */}
       {tab === 'congvan' && cv.ket_luan && (
@@ -218,65 +196,105 @@ ${content}
         )}
       </div>
 
-      {/* Keywords */}
-      {(doc.keywords ?? []).length > 0 && (
-        <div className="px-4 py-2 border-t border-gray-100 flex flex-wrap gap-1 flex-shrink-0">
-          {(doc.keywords ?? []).map((k, i) => (
-            <span key={i} className="bg-gray-100 text-gray-500 text-[11px] px-2 py-0.5 rounded">{k}</span>
-          ))}
-        </div>
-      )}
+      {/* Footer — Tóm tắt + Hiệu lực + Keywords + Actions */}
+      <div className="border-t border-gray-100 flex-shrink-0">
 
-      {/* Footer actions */}
-      <div className="px-4 py-2 border-t border-gray-100 flex gap-2 flex-shrink-0">
-        <button
-          onClick={() => setShowAI(true)}
-          className="px-3 py-1.5 bg-primary text-white text-xs font-medium rounded hover:bg-primary-dark transition"
-        >
-          🤖 Phân tích AI
-        </button>
-        {(doc as Document).github_path && (
-          <a
-            href={`https://vntaxdoc.gpt4vn.com/docs/${(doc as Document).github_path}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="px-3 py-1.5 border border-gray-300 text-gray-600 text-xs rounded hover:border-primary hover:text-primary transition"
-          >
-            📄 Xem gốc ↗
-          </a>
+        {/* Tóm tắt accordion */}
+        {(doc as Document).tom_tat && (
+          <div className="border-b border-gray-100">
+            <button
+              onClick={() => setTomTatOpen(o => !o)}
+              className="w-full flex items-center justify-between px-4 py-2 hover:bg-gray-50 transition text-left"
+            >
+              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">📝 Tóm tắt</span>
+              <span className="text-gray-400 text-xs">{tomTatOpen ? '▲' : '▼'}</span>
+            </button>
+            {tomTatOpen && (
+              <div className="px-4 pb-3 text-sm text-gray-600 leading-relaxed max-h-40 overflow-y-auto">
+                {(doc as Document).tom_tat}
+              </div>
+            )}
+          </div>
         )}
-        {(doc as Document).tvpl_url && (
-          <a
-            href={(doc as Document).tvpl_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="px-3 py-1.5 border border-gray-300 text-gray-600 text-xs rounded hover:border-primary hover:text-primary transition"
-          >
-            🔗 Xem trên TVPL ↗
-          </a>
+
+        {/* Hiệu lực chi tiết accordion */}
+        {tab === 'vanban' && doc.hieu_luc_index && (
+          <div className="border-b border-gray-100">
+            <button
+              onClick={() => setHieuLucOpen(o => !o)}
+              className="w-full flex items-center justify-between px-4 py-2 hover:bg-gray-50 transition text-left"
+            >
+              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">⚡ Hiệu lực chi tiết</span>
+              <span className="text-gray-400 text-xs">{hieuLucOpen ? '▲' : '▼'}</span>
+            </button>
+            {hieuLucOpen && (
+              <div className="px-4 pb-3 max-h-48 overflow-y-auto">
+                <HieuLucDetail index={doc.hieu_luc_index} />
+              </div>
+            )}
+          </div>
         )}
-        {(item as CongVan).link_nguon && (
-          <a
-            href={(item as CongVan).link_nguon}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="px-3 py-1.5 border border-gray-300 text-gray-600 text-xs rounded hover:border-primary hover:text-primary transition"
-          >
-            Xem nguồn ↗
-          </a>
+
+        {/* Keywords */}
+        {(doc.keywords ?? []).length > 0 && (
+          <div className="px-4 py-2 border-b border-gray-100 flex flex-wrap gap-1">
+            {(doc.keywords ?? []).map((k, i) => (
+              <span key={i} className="bg-gray-100 text-gray-500 text-[11px] px-2 py-0.5 rounded">{k}</span>
+            ))}
+          </div>
         )}
-        {content && (
+
+        {/* Action buttons */}
+        <div className="px-4 py-2 flex gap-2 flex-wrap">
           <button
-            onClick={openContentInNewTab}
-            className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 hover:border-primary hover:text-primary transition text-gray-500 whitespace-nowrap"
-            title="Mở nội dung trong tab mới"
+            onClick={() => setShowAI(true)}
+            className="px-3 py-1.5 bg-primary text-white text-xs font-medium rounded hover:bg-primary-dark transition"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-            </svg>
-            Mở tab mới
+            🤖 Phân tích AI
           </button>
-        )}
+          {(doc as Document).github_path && (
+            <a
+              href={`https://vntaxdoc.gpt4vn.com/docs/${(doc as Document).github_path}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-1.5 border border-gray-300 text-gray-600 text-xs rounded hover:border-primary hover:text-primary transition"
+            >
+              📄 Xem gốc ↗
+            </a>
+          )}
+          {(doc as Document).tvpl_url && (
+            <a
+              href={(doc as Document).tvpl_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-1.5 border border-gray-300 text-gray-600 text-xs rounded hover:border-primary hover:text-primary transition"
+            >
+              🔗 Xem trên TVPL ↗
+            </a>
+          )}
+          {(item as CongVan).link_nguon && (
+            <a
+              href={(item as CongVan).link_nguon}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-1.5 border border-gray-300 text-gray-600 text-xs rounded hover:border-primary hover:text-primary transition"
+            >
+              Xem nguồn ↗
+            </a>
+          )}
+          {content && (
+            <button
+              onClick={openContentInNewTab}
+              className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 hover:border-primary hover:text-primary transition text-gray-500 whitespace-nowrap"
+              title="Mở nội dung trong tab mới"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+              Mở tab mới
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

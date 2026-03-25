@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Document, CongVan } from '../types';
 import { useSearch, useCongVan, useHealth } from '../api';
@@ -14,6 +14,16 @@ import Divider from '../components/Divider';
 type Tab = 'vanban' | 'congvan';
 
 const LIMIT = 20;
+
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
+  useEffect(() => {
+    const handler = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, []);
+  return isMobile;
+}
 
 export default function HomePage() {
   const [tab, setTab] = useState<Tab>('vanban');
@@ -31,6 +41,14 @@ export default function HomePage() {
   // Resizable panel widths
   const [sidebarW, setSidebarW] = useState(200);
   const [listW, setListW] = useState(280);
+
+  // Collapsible panels
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [listCollapsed, setListCollapsed] = useState(false);
+
+  // Mobile state
+  const [mobileListOpen, setMobileListOpen] = useState(false);
+  const isMobile = useIsMobile();
 
   const auth = useAuth();
   const navigate = useNavigate();
@@ -92,6 +110,9 @@ export default function HomePage() {
   const handleListResize = useCallback((dx: number) => {
     setListW((w) => Math.max(200, Math.min(500, w + dx)));
   }, []);
+
+  // Mobile: when item selected, show fullscreen content
+  const mobileContentFullscreen = isMobile && selectedItem !== null;
 
   return (
     <div className="h-full flex flex-col">
@@ -178,67 +199,91 @@ export default function HomePage() {
         </div>
       </header>
 
-      {/* Main Content — 3-panel resizable layout */}
+      {/* Main Content */}
       <div className="flex flex-1 overflow-hidden relative select-none">
         {sidebarOpen && (
           <div className="fixed inset-0 bg-black/30 z-30 md:hidden" onClick={() => setSidebarOpen(false)} />
         )}
 
-        {/* Sidebar */}
-        <div
-          className={`${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 transition-transform duration-200 fixed md:static z-40 md:z-auto h-full flex-shrink-0`}
-          style={{ width: sidebarW }}
-        >
-          <Sidebar
-            selected={category}
-            onSelect={(code) => { handleCategorySelect(code); setSidebarOpen(false); }}
-            dateFrom={dateFrom}
-            dateTo={dateTo}
-            onDateRangeChange={handleDateRangeChange}
-            tab={tab}
-            selectedChuDe={selectedChuDe}
-            onChuDeSelect={(cd) => {
-              setSelectedChuDe(cd);
-              setPage(1);
-              setSelectedItem(null);
-              setSidebarOpen(false);
-            }}
-          />
-        </div>
+        {/* Sidebar — hidden on mobile when content is fullscreen */}
+        {!mobileContentFullscreen && (
+          <div
+            className={`${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 transition-transform duration-200 fixed md:static z-40 md:z-auto h-full flex-shrink-0`}
+            style={{ width: sidebarCollapsed ? 40 : sidebarW }}
+          >
+            <Sidebar
+              selected={category}
+              onSelect={(code) => { handleCategorySelect(code); setSidebarOpen(false); }}
+              dateFrom={dateFrom}
+              dateTo={dateTo}
+              onDateRangeChange={handleDateRangeChange}
+              tab={tab}
+              selectedChuDe={selectedChuDe}
+              onChuDeSelect={(cd) => {
+                setSelectedChuDe(cd);
+                setPage(1);
+                setSelectedItem(null);
+                setSidebarOpen(false);
+              }}
+              collapsed={sidebarCollapsed}
+              onToggleCollapse={() => setSidebarCollapsed(c => !c)}
+            />
+          </div>
+        )}
 
-        {/* Divider: Sidebar | DocList */}
-        <div className="hidden md:flex h-full flex-shrink-0">
-          <Divider onResize={handleSidebarResize} />
-        </div>
+        {/* Divider: Sidebar | DocList — hidden on mobile or when sidebar collapsed */}
+        {!isMobile && !sidebarCollapsed && (
+          <div className="hidden md:flex h-full flex-shrink-0">
+            <Divider onResize={handleSidebarResize} />
+          </div>
+        )}
 
-        {/* Doc List */}
-        <div
-          className="flex flex-col border-r border-gray-200 bg-gray-50 flex-shrink-0 overflow-hidden"
-          style={{ width: listW, minWidth: 200 }}
-        >
-          <DocList
-            items={items}
-            total={total}
-            page={page}
-            limit={LIMIT}
-            selectedId={selectedItem?.id ?? null}
-            tab={tab}
-            isLoading={isLoading}
-            onSelect={(item) => setSelectedItem(item)}
-            onPageChange={setPage}
-          />
-        </div>
+        {/* Doc List — hidden on mobile (replaced by bottom sheet) */}
+        {!isMobile && (
+          <div
+            className="relative flex flex-col border-r border-gray-200 bg-gray-50 flex-shrink-0 overflow-hidden"
+            style={{ width: listCollapsed ? 0 : listW, minWidth: listCollapsed ? 0 : 200, transition: 'width 0.15s' }}
+          >
+            {/* Collapse toggle button — floats on right edge */}
+            <button
+              onClick={() => setListCollapsed(c => !c)}
+              title={listCollapsed ? 'Mở danh sách' : 'Thu gọn danh sách'}
+              className="absolute right-0 top-1/2 z-10 bg-white border border-gray-200 rounded-l shadow-sm px-0.5 py-3 hover:bg-gray-50 hover:text-primary transition text-gray-400"
+              style={{ transform: 'translateY(-50%) translateX(100%)' }}
+            >
+              <svg className={`w-3 h-3 transition-transform ${listCollapsed ? 'rotate-180' : ''}`}
+                   fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
 
-        {/* Divider: DocList | ContentPanel */}
-        <Divider onResize={handleListResize} />
+            {!listCollapsed && (
+              <DocList
+                items={items}
+                total={total}
+                page={page}
+                limit={LIMIT}
+                selectedId={selectedItem?.id ?? null}
+                tab={tab}
+                isLoading={isLoading}
+                onSelect={(item) => setSelectedItem(item)}
+                onPageChange={setPage}
+              />
+            )}
+          </div>
+        )}
+
+        {/* Divider: DocList | ContentPanel — hidden on mobile */}
+        {!isMobile && <Divider onResize={handleListResize} />}
 
         {/* Content Panel + optional Quick AI panel */}
-        <div className="flex flex-1 overflow-hidden">
+        <div className={`flex flex-1 overflow-hidden ${mobileContentFullscreen ? 'w-full' : ''}`}>
           <ContentPanel
             item={selectedItem}
             tab={tab}
             token={auth.token}
             onRequestLogin={requestLogin}
+            onBack={mobileContentFullscreen ? () => setSelectedItem(null) : undefined}
           />
 
           {/* Quick Analysis panel */}
@@ -254,6 +299,47 @@ export default function HomePage() {
             </div>
           )}
         </div>
+
+        {/* Mobile: floating DocList button */}
+        {isMobile && !mobileContentFullscreen && (
+          <button
+            onClick={() => setMobileListOpen(true)}
+            className="fixed bottom-4 left-4 z-50 bg-primary text-white rounded-full shadow-lg px-4 py-2 text-sm font-medium flex items-center gap-2"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16" />
+            </svg>
+            {total > 0 ? `${total} kết quả` : 'Danh sách'}
+          </button>
+        )}
+
+        {/* Mobile: DocList bottom sheet */}
+        {isMobile && mobileListOpen && (
+          <div className="fixed inset-0 z-50 flex flex-col justify-end">
+            <div className="bg-black/40 absolute inset-0" onClick={() => setMobileListOpen(false)} />
+            <div className="relative bg-white rounded-t-2xl shadow-2xl flex flex-col" style={{ height: '70vh' }}>
+              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                <span className="text-sm font-semibold text-gray-700">
+                  {tab === 'vanban' ? 'Văn bản' : 'Công văn'} ({total})
+                </span>
+                <button onClick={() => setMobileListOpen(false)} className="text-gray-400 hover:text-gray-600">✕</button>
+              </div>
+              <div className="flex-1 overflow-hidden">
+                <DocList
+                  items={items}
+                  total={total}
+                  page={page}
+                  limit={LIMIT}
+                  selectedId={selectedItem?.id ?? null}
+                  tab={tab}
+                  isLoading={isLoading}
+                  onSelect={(item) => { setSelectedItem(item); setMobileListOpen(false); }}
+                  onPageChange={setPage}
+                />
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Auth modal */}
