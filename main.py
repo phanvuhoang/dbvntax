@@ -187,6 +187,15 @@ class RelatedBody(BaseModel):
     source: str
     id: int
 
+class CorpusImportRequest(BaseModel):
+    paths: List[str]
+
+class TVPLImportRequest(BaseModel):
+    url: str
+    html_content: Optional[str] = None
+    loai_override: Optional[str] = None
+    sac_thue_override: Optional[List[str]] = None
+
 @app.get("/health")
 async def health(db: AsyncSession = Depends(get_db)):
     r = await db.execute(text("""
@@ -487,6 +496,339 @@ async def admin_stats(db: AsyncSession = Depends(get_db), user=Depends(require_a
           (SELECT COUNT(*) FROM query_log WHERE created_at > NOW() - INTERVAL '1 day') AS queries_today
     """))
     return dict(r.mappings().first())
+
+@app.get("/api/admin/corpus-new")
+async def corpus_new_docs(
+    since: Optional[str] = None,
+    current_user=Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    import httpx
+    if not since:
+        r = await db.execute(text("SELECT MAX(import_date)::date FROM documents"))
+        max_date = r.scalar()
+        since = str(max_date) if max_date else "2026-03-25"
+
+    GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+    headers = {"Accept": "application/vnd.github.v3+json"}
+    if GITHUB_TOKEN:
+        headers["Authorization"] = f"token {GITHUB_TOKEN}"
+
+    url = f"https://api.github.com/repos/phanvuhoang/vn-tax-corpus/commits?since={since}T00:00:00Z&per_page=100"
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(url, headers=headers)
+    commits = resp.json() if resp.status_code == 200 else []
+
+    changed_paths: set = set()
+    for commit in commits[:20]:
+        sha = commit["sha"]
+        async with httpx.AsyncClient(timeout=30) as client:
+            detail = (await client.get(
+                f"https://api.github.com/repos/phanvuhoang/vn-tax-corpus/commits/{sha}",
+                headers=headers
+            )).json()
+        for f in detail.get("files", []):
+            fname = f.get("filename", "")
+            if fname.startswith("docs/") and fname.endswith(".html"):
+                changed_paths.add(fname[5:])
+
+    if not changed_paths:
+        return {"items": [], "since": since, "total": 0}
+
+    r = await db.execute(text("SELECT github_path FROM documents"))
+    existing = {row[0] for row in r.fetchall() if row[0]}
+    r2 = await db.execute(text("SELECT github_path FROM cong_van"))
+    existing |= {row[0] for row in r2.fetchall() if row[0]}
+    new_paths = [p for p in changed_paths if p not in existing]
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        index_raw = (await client.get(
+            "https://raw.githubusercontent.com/phanvuhoang/vn-tax-corpus/main/index.json"
+        )).json()
+    path_map = {item.get("p", ""): item for item in index_raw if item.get("p")}
+
+    items = []
+    for path in new_paths:
+        meta = path_map.get(path, {})
+        items.append({
+            "github_path": path,
+            "name": meta.get("n", path.split("/")[-1]),
+            "so_hieu": meta.get("so_hieu", ""),
+            "loai": meta.get("t", ""),
+            "tx": meta.get("tx", ""),
+            "date_id": meta.get("id", ""),
+        })
+    items.sort(key=lambda x: x.get("date_id", "") or "", reverse=True)
+    return {"items": items, "since": since, "total": len(items)}
+
+
+@app.post("/api/admin/corpus-import")
+async def corpus_import(
+    req: CorpusImportRequest,
+    current_user=Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    import httpx, re
+    from bs4 import BeautifulSoup
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        index_raw = (await client.get(
+            "https://raw.githubusercontent.com/phanvuhoang/vn-tax-corpus/main/index.json"
+        )).json()
+    path_map = {item.get("p", ""): item for item in index_raw if item.get("p")}
+
+    TYPE_MAP = {"NĐ": "ND", "Nghị định": "ND", "TT": "TT", "Luật": "Luat",
+                "VBHN": "VBHN", "QĐ": "QD", "NQ": "NQ", "CV": "CV", "Khác": "Khac"}
+    TX_MAP = {"TNDN": "TNDN", "GTGT": "GTGT", "TNCN": "TNCN", "TTDB": "TTDB",
+              "NhaThau": "FCT", "GDLK": "GDLK", "QLT": "QLT", "HoaDon": "HOA_DON",
+              "HKD": "HKD", "CIT": "TNDN"}
+    IMP_MAP = {"ND": 1, "TT": 1, "Luat": 2, "VBHN": 2, "NQ": 2, "QD": 3, "CV": 4, "Khac": 3}
+
+    results = []
+    for path in req.paths:
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.get(
+                    f"https://raw.githubusercontent.com/phanvuhoang/vn-tax-corpus/main/docs/{path}"
+                )
+            if resp.status_code != 200:
+                results.append({"path": path, "status": "error", "msg": f"HTTP {resp.status_code}"})
+                continue
+
+            html = resp.text
+            soup = BeautifulSoup(html, "html.parser")
+            text_content = soup.get_text("\n", strip=True)
+            meta = path_map.get(path, {})
+            name = meta.get("n", "").strip()
+            so_hieu = meta.get("so_hieu") or ""
+            if not so_hieu:
+                m = re.search(r'(\d{1,5}/\d{4}/[\wĐ\-]+)', name)
+                if m:
+                    so_hieu = m.group(1)
+
+            date_match = re.search(
+                r'[Hh]à\s*[Nn]ội[,\s]+ngày\s+(\d{1,2})\s+tháng\s+(\d{1,2})\s+năm\s+(20\d{2})',
+                text_content
+            )
+            if date_match:
+                d, mo, y = date_match.groups()
+                ngay_ban_hanh = f"{y}-{mo.zfill(2)}-{d.zfill(2)}"
+            else:
+                date_id = str(meta.get("id", "") or "")
+                ngay_ban_hanh = f"{date_id[:4]}-{date_id[4:6]}-{date_id[6:8]}" if len(date_id) == 8 else None
+
+            loai = TYPE_MAP.get(meta.get("t", ""), "Khac")
+            tx = meta.get("tx", "")
+            sac_thue = [TX_MAP[tx]] if tx in TX_MAP else ["QLT"]
+            importance = IMP_MAP.get(loai, 3)
+            content_div = soup.find("div", id="divContentDoc") or soup.find("body")
+            noi_dung = str(content_div) if content_div else html
+            tvpl_url = f"https://thuvienphapluat.vn/van-ban/{path.replace('/', '-')}"
+
+            if loai == "CV":
+                await db.execute(text("""
+                    INSERT INTO cong_van (so_hieu, ten, co_quan, ngay_ban_hanh, sac_thue, chu_de,
+                        nguon, link_nguon, github_path, doc_type, importance, import_date, keywords, noi_dung)
+                    VALUES (:so_hieu, :ten, 'Tổng cục Thuế', :ngay::date, :sac_thue, '{}',
+                        'corpus', :github_path, :github_path, 'congvan', :importance, NOW(), '{}', :noi_dung)
+                    ON CONFLICT (link_nguon) DO NOTHING
+                """), {"so_hieu": so_hieu, "ten": name, "ngay": ngay_ban_hanh,
+                       "sac_thue": sac_thue, "github_path": path, "importance": importance, "noi_dung": noi_dung})
+            else:
+                await db.execute(text("""
+                    INSERT INTO documents (so_hieu, ten, loai, ngay_ban_hanh, tinh_trang, sac_thue,
+                        github_path, doc_type, importance, import_date, keywords, noi_dung, tvpl_url)
+                    VALUES (:so_hieu, :ten, :loai, :ngay::date, 'con_hieu_luc', :sac_thue,
+                        :github_path, 'vanban', :importance, NOW(), '{}', :noi_dung, :tvpl_url)
+                    ON CONFLICT (github_path) DO NOTHING
+                """), {"so_hieu": so_hieu, "ten": name, "loai": loai, "ngay": ngay_ban_hanh,
+                       "sac_thue": sac_thue, "github_path": path, "importance": importance,
+                       "noi_dung": noi_dung, "tvpl_url": tvpl_url})
+            await db.commit()
+            results.append({"path": path, "status": "ok", "so_hieu": so_hieu, "ten": name[:60]})
+        except Exception as e:
+            results.append({"path": path, "status": "error", "msg": str(e)})
+
+    return {"results": results}
+
+
+async def _parse_tvpl(url: str, html_content: Optional[str], loai_override: Optional[str], sac_thue_override: Optional[List[str]]):
+    """Shared parse logic for tvpl-preview and tvpl-import."""
+    import httpx, re, hashlib
+    from bs4 import BeautifulSoup
+
+    html = html_content
+    fetch_error = None
+    if not html:
+        try:
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/121.0.0.0 Safari/537.36",
+                "Accept-Language": "vi-VN,vi;q=0.9",
+            }
+            async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+                resp = await client.get(url, headers=headers)
+            if resp.status_code == 200:
+                html = resp.text
+            else:
+                fetch_error = f"HTTP {resp.status_code}"
+        except Exception as e:
+            fetch_error = str(e)
+
+    if not html:
+        return None, fetch_error
+
+    soup = BeautifulSoup(html, "html.parser")
+    text_content = soup.get_text("\n", strip=True)
+    lines = [l.strip() for l in text_content.split("\n") if l.strip()]
+
+    so_hieu = ""
+    for line in lines[:50]:
+        m = re.search(r'Số:\s*(\d{1,5}/\d{4}/[\wĐ\-]+)', line)
+        if m:
+            so_hieu = m.group(1)
+            break
+
+    title = ""
+    for i, line in enumerate(lines[:80]):
+        if line.upper() in ("NGHỊ ĐỊNH", "THÔNG TƯ", "LUẬT", "QUYẾT ĐỊNH", "NGHỊ QUYẾT", "VĂN BẢN HỢP NHẤT"):
+            title_parts = []
+            for j in range(i + 1, min(i + 6, len(lines))):
+                if lines[j] and not lines[j].startswith("Căn cứ"):
+                    title_parts.append(lines[j])
+                else:
+                    break
+            title = " ".join(title_parts).strip()
+            break
+    if not title and so_hieu:
+        title = so_hieu
+
+    loai = loai_override or "Khac"
+    if not loai_override:
+        url_lower = url.lower()
+        if "nghi-dinh" in url_lower or "/nd-" in so_hieu.lower():
+            loai = "ND"
+        elif "thong-tu" in url_lower or "/tt-" in so_hieu.lower():
+            loai = "TT"
+        elif "luat" in url_lower:
+            loai = "Luat"
+        elif "quyet-dinh" in url_lower:
+            loai = "QD"
+        elif "nghi-quyet" in url_lower:
+            loai = "NQ"
+        elif "van-ban-hop-nhat" in url_lower:
+            loai = "VBHN"
+        elif "cong-van" in url_lower or "chi-thi" in url_lower:
+            loai = "CV"
+
+    type_prefix = {"ND": "NĐ", "TT": "TT", "Luat": "Luật", "VBHN": "VBHN"}
+    pfx = type_prefix.get(loai, "")
+    ten = f"{pfx} {so_hieu} — {title}".strip(" —") if so_hieu else title
+
+    date_match = re.search(
+        r'[Hh]à\s*[Nn]ội[,\s]+ngày\s+(\d{1,2})\s+tháng\s+(\d{1,2})\s+năm\s+(20\d{2})',
+        text_content
+    )
+    ngay_ban_hanh = None
+    if date_match:
+        d, mo, y = date_match.groups()
+        ngay_ban_hanh = f"{y}-{mo.zfill(2)}-{d.zfill(2)}"
+
+    sac_thue = sac_thue_override or []
+    if not sac_thue:
+        KEYWORDS = {
+            "TNDN": ["thu nhập doanh nghiệp", "tndn"],
+            "GTGT": ["giá trị gia tăng", "gtgt", "vat"],
+            "TNCN": ["thu nhập cá nhân", "tncn"],
+            "TTDB": ["tiêu thụ đặc biệt", "ttdb", "ttđb"],
+            "FCT": ["nhà thầu nước ngoài", "nhà thầu"],
+            "GDLK": ["giao dịch liên kết", "chuyển giá"],
+            "QLT": ["quản lý thuế", "kê khai", "nộp thuế"],
+            "HOA_DON": ["hóa đơn điện tử", "hóa đơn"],
+            "HKD": ["hộ kinh doanh"],
+            "XNK": ["xuất nhập khẩu", "hải quan"],
+        }
+        text_lower = text_content[:2000].lower()
+        for code, kws in KEYWORDS.items():
+            if any(kw in text_lower for kw in kws):
+                sac_thue.append(code)
+        if not sac_thue:
+            sac_thue = ["QLT"]
+
+    IMP_MAP = {"ND": 1, "TT": 1, "Luat": 2, "VBHN": 2, "NQ": 2, "QD": 3, "CV": 4, "Khac": 3}
+    importance = IMP_MAP.get(loai, 3)
+
+    content_div = soup.find("div", id="divContentDoc") or soup.find("body")
+    noi_dung = str(content_div) if content_div else html
+    noi_dung = re.sub(r'width:\s*\d+\.?\d*(pt|px|%)\s*;?\s*', '', noi_dung)
+    noi_dung = re.sub(r'float:\s*\w+\s*;?\s*', '', noi_dung)
+
+    url_slug = url.split("/van-ban/")[-1].split(".aspx")[0] if "/van-ban/" in url else __import__('hashlib').md5(url.encode()).hexdigest()[:16]
+    github_path = f"tvpl/{url_slug}.html"
+
+    return {
+        "so_hieu": so_hieu, "ten": ten, "loai": loai,
+        "ngay_ban_hanh": ngay_ban_hanh, "sac_thue": sac_thue,
+        "importance": importance, "noi_dung": noi_dung, "github_path": github_path,
+    }, None
+
+
+@app.post("/api/admin/tvpl-preview")
+async def tvpl_preview(req: TVPLImportRequest, current_user=Depends(require_admin)):
+    parsed, err = await _parse_tvpl(req.url, req.html_content, req.loai_override, req.sac_thue_override)
+    if err:
+        return {"status": "error", "msg": f"Không fetch được TVPL: {err}. Vui lòng paste HTML thủ công."}
+    return {"status": "ok", **{k: parsed[k] for k in ("so_hieu", "ten", "loai", "ngay_ban_hanh", "sac_thue")}}
+
+
+@app.post("/api/admin/tvpl-import")
+async def tvpl_import(
+    req: TVPLImportRequest,
+    current_user=Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    parsed, err = await _parse_tvpl(req.url, req.html_content, req.loai_override, req.sac_thue_override)
+    if err:
+        return {"status": "error", "msg": f"Không fetch được: {err}. Vui lòng paste HTML thủ công."}
+
+    so_hieu = parsed["so_hieu"]
+    ten = parsed["ten"]
+    loai = parsed["loai"]
+    ngay_ban_hanh = parsed["ngay_ban_hanh"]
+    sac_thue = parsed["sac_thue"]
+    importance = parsed["importance"]
+    noi_dung = parsed["noi_dung"]
+    github_path = parsed["github_path"]
+
+    try:
+        if loai == "CV":
+            await db.execute(text("""
+                INSERT INTO cong_van (so_hieu, ten, co_quan, ngay_ban_hanh, sac_thue, chu_de,
+                    nguon, link_nguon, github_path, doc_type, importance, import_date, keywords, noi_dung, link_tvpl)
+                VALUES (:so_hieu, :ten, 'Tổng cục Thuế', :ngay::date, :sac_thue, '{}',
+                    'tvpl', :url, :github_path, 'congvan', :importance, NOW(), '{}', :noi_dung, :url)
+                ON CONFLICT (link_nguon) DO NOTHING
+            """), {"so_hieu": so_hieu, "ten": ten, "ngay": ngay_ban_hanh, "sac_thue": sac_thue,
+                   "url": req.url, "github_path": github_path, "importance": importance, "noi_dung": noi_dung})
+        else:
+            await db.execute(text("""
+                INSERT INTO documents (so_hieu, ten, loai, ngay_ban_hanh, tinh_trang, sac_thue,
+                    github_path, doc_type, importance, import_date, keywords, noi_dung, tvpl_url)
+                VALUES (:so_hieu, :ten, :loai, :ngay::date, 'con_hieu_luc', :sac_thue,
+                    :github_path, 'vanban', :importance, NOW(), '{}', :noi_dung, :url)
+                ON CONFLICT (github_path) DO NOTHING
+            """), {"so_hieu": so_hieu, "ten": ten, "loai": loai, "ngay": ngay_ban_hanh,
+                   "sac_thue": sac_thue, "github_path": github_path, "importance": importance,
+                   "noi_dung": noi_dung, "url": req.url})
+        await db.commit()
+    except Exception as e:
+        return {"status": "error", "msg": str(e),
+                "preview": {"so_hieu": so_hieu, "ten": ten, "loai": loai}}
+
+    return {"status": "ok", "preview": {
+        "so_hieu": so_hieu, "ten": ten, "loai": loai,
+        "ngay_ban_hanh": ngay_ban_hanh, "sac_thue": sac_thue, "importance": importance,
+    }}
+
 
 import os as _os
 from fastapi.responses import FileResponse as _FileResponse

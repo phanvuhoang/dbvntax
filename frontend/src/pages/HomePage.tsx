@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { Document, CongVan } from '../types';
 import { useSearch, useCongVan, useHealth } from '../api';
 import { useAuth } from '../auth';
@@ -32,6 +33,7 @@ export default function HomePage() {
   const [listW, setListW] = useState(280);
 
   const auth = useAuth();
+  const navigate = useNavigate();
   const { data: health } = useHealth();
 
   const searchResult = useSearch({
@@ -135,6 +137,16 @@ export default function HomePage() {
           >
             🤖 Hỏi AI
           </button>
+
+          {/* Admin button */}
+          {auth.user?.role === 'admin' && (
+            <button
+              onClick={() => navigate('/admin')}
+              className="px-3 py-1.5 text-sm font-medium rounded transition text-gray-500 hover:text-primary hover:bg-primary-light hidden sm:block"
+            >
+              ⚙️ Admin
+            </button>
+          )}
 
           {/* Auth */}
           <div className="flex items-center gap-2">
