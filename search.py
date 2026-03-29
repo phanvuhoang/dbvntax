@@ -80,27 +80,40 @@ async def search_keyword(db: AsyncSession, q: str, filters: dict, limit: int, of
     rows = [dict(row) for row in r.mappings().all()]
     return rows, total
 
+SEMANTIC_THRESHOLD = 0.30  # min cosine similarity score
+
 async def search_semantic(db: AsyncSession, q: str, filters: dict, limit: int, offset: int):
     emb = await embed_text(q)
     if not emb:
         return await search_keyword(db, q, filters, limit, offset)
     where, params = build_filters(filters)
+    and_kw = "AND" if where else "WHERE"
     params["emb"] = str(emb)
-    params["limit"] = limit + offset
+    params["threshold"] = SEMANTIC_THRESHOLD
     try:
+        # Count total matching above threshold
+        r_count = await db.execute(text(f"""
+            SELECT COUNT(*) FROM documents
+            {where} {and_kw} embedding IS NOT NULL
+            AND 1-(embedding <=> CAST(:emb AS vector)) >= :threshold
+        """), params)
+        total = r_count.scalar() or 0
+        params["limit"] = limit
+        params["offset"] = offset
         r = await db.execute(text(f"""
             SELECT id, so_hieu, ten, loai, ngay_ban_hanh, tinh_trang, hl, sac_thue,
                    category_name, github_path, hieu_luc_index, LEFT(tom_tat, 300) as snippet, 'documents' as source,
                    1-(embedding <=> CAST(:emb AS vector)) AS score
             FROM documents
-            {where}
-            {"AND" if where else "WHERE"} embedding IS NOT NULL
+            {where} {and_kw} embedding IS NOT NULL
+            AND 1-(embedding <=> CAST(:emb AS vector)) >= :threshold
             ORDER BY embedding <=> CAST(:emb AS vector)
-            LIMIT :limit
+            LIMIT :limit OFFSET :offset
         """), params)
         rows = [dict(row) for row in r.mappings().all()]
-        total = len(rows)
-        return rows[offset:offset+limit], total
+        if total == 0:
+            return await search_keyword(db, q, filters, limit, offset)
+        return rows, total
     except Exception as e:
         print(f"Semantic search error (fallback to keyword): {e}")
         return await search_keyword(db, q, filters, limit, offset)
@@ -110,26 +123,30 @@ async def search_semantic_cv(db: AsyncSession, q: str, filters: dict, limit: int
     emb = await embed_text(q)
     if not emb:
         return await search_keyword_cv(db, q, filters, limit, offset)
-    where_parts = ['embedding IS NOT NULL']
-    params = {}
+    where_parts = ['embedding IS NOT NULL', '1-(embedding <=> CAST(:emb AS vector)) >= :threshold']
+    params = {'threshold': SEMANTIC_THRESHOLD}
     if filters.get('sac_thue'):
         where_parts.append(':sac_thue = ANY(sac_thue)')
         params['sac_thue'] = filters['sac_thue']
     where = 'WHERE ' + ' AND '.join(where_parts)
     params['emb'] = str(emb)
-    params['limit'] = limit + offset
     try:
+        r_count = await db.execute(text(f'SELECT COUNT(*) FROM cong_van {where}'), params)
+        total = r_count.scalar() or 0
+        params['limit'] = limit
+        params['offset'] = offset
         r = await db.execute(text(f"""
             SELECT id, so_hieu, ten, co_quan, ngay_ban_hanh, sac_thue, nguon, link_nguon,
                    1-(embedding <=> CAST(:emb AS vector)) AS score
             FROM cong_van
             {where}
             ORDER BY embedding <=> CAST(:emb AS vector)
-            LIMIT :limit
+            LIMIT :limit OFFSET :offset
         """), params)
         rows = [dict(row) for row in r.mappings().all()]
-        total = len(rows)
-        return rows[offset:offset+limit], total
+        if total == 0:
+            return await search_keyword_cv(db, q, filters, limit, offset)
+        return rows, total
     except Exception as e:
         print(f'Semantic CV error: {e}')
         return await search_keyword_cv(db, q, filters, limit, offset)
