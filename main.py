@@ -857,9 +857,13 @@ async def tvpl_import(
 # ── Embedding Push Endpoint (called by Colab) ────────────────────────────────
 EMBED_TOKEN = os.environ.get("EMBED_TOKEN", "colab-embed-2026")
 
+class EmbeddingItem(BaseModel):
+    id: int
+    embedding: list
+
 class EmbeddingBatch(BaseModel):
-    table: str          # "documents" or "cong_van"
-    embeddings: list    # [{"id": int, "embedding": [float, ...]}, ...]
+    table: str
+    embeddings: list[EmbeddingItem]
 
 @app.post("/api/admin/update-embeddings")
 async def update_embeddings(
@@ -882,10 +886,10 @@ async def update_embeddings(
     errors = 0
     for item in req.embeddings:
         try:
-            emb_str = "[" + ",".join(str(x) for x in item["embedding"]) + "]"
+            emb_str = "[" + ",".join(str(x) for x in item.embedding) + "]"
             await db.execute(
                 text(f"UPDATE {req.table} SET embedding = :emb::vector WHERE id = :id"),
-                {"emb": emb_str, "id": item["id"]}
+                {"emb": emb_str, "id": item.id}
             )
             updated += 1
         except Exception as e:
