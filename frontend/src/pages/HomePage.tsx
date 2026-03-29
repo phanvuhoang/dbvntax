@@ -70,6 +70,7 @@ export default function HomePage() {
     chu_de: selectedChuDe,
     year_from: dateFrom ? parseInt(dateFrom.split('-')[0]) : undefined,
     year_to: dateTo ? parseInt(dateTo.split('-')[0]) : undefined,
+    mode: query ? 'semantic' : undefined,
     limit: LIMIT,
     offset: (page - 1) * LIMIT,
   });

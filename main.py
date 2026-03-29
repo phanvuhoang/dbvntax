@@ -18,7 +18,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db, engine
-from search import do_search, get_doc_by_id, get_cv_by_id, get_article_by_id, list_cong_van
+from search import do_search, get_doc_by_id, get_cv_by_id, get_article_by_id, list_cong_van, search_semantic_cv
 from ai import stream_quick_analysis, stream_analyze_doc, do_factcheck, do_related
 
 log = logging.getLogger("vntaxdb")
@@ -435,9 +435,17 @@ async def cong_van_list(
     q: str = "", sac_thue: Optional[str] = None, nguon: Optional[str] = None,
     chu_de: Optional[str] = None, tinh_trang: Optional[str] = None,
     year_from: Optional[int] = None, year_to: Optional[int] = None,
+    mode: Optional[str] = None,
     limit: int = Query(20, le=100), offset: int = 0,
     db: AsyncSession = Depends(get_db),
 ):
+    if q and mode in ("semantic", "hybrid"):
+        filters = {}
+        if sac_thue: filters["sac_thue"] = sac_thue
+        if year_from: filters["year_from"] = year_from
+        if year_to: filters["year_to"] = year_to
+        results, total = await search_semantic_cv(db, q, filters, limit, offset)
+        return {"total": total, "items": results}
     results, total = await list_cong_van(
         db, q, sac_thue, nguon, limit, offset,
         year_from=year_from, year_to=year_to,

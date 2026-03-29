@@ -76,6 +76,8 @@ export interface CongVanParams {
   year_to?: number;
   limit?: number;
   offset?: number;
+  mode?: string;
+  type?: string;
 }
 
 function buildCongVanURL(params: CongVanParams): string {
@@ -86,6 +88,8 @@ function buildCongVanURL(params: CongVanParams): string {
   if (params.tinh_trang) p.set('tinh_trang', params.tinh_trang);
   if (params.year_from) p.set('year_from', String(params.year_from));
   if (params.year_to) p.set('year_to', String(params.year_to));
+  if (params.mode) p.set('mode', params.mode);
+  if (params.type) p.set('type', params.type);
   p.set('limit', String(params.limit ?? 20));
   p.set('offset', String(params.offset ?? 0));
   return `/api/cong-van?${p}`;
