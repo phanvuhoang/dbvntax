@@ -918,6 +918,22 @@ async def embedding_status(
     row = r.mappings().first()
     return dict(row)
 
+
+@app.get("/api/admin/docs-missing-embed")
+async def docs_missing_embed(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    token = request.headers.get("X-Embed-Token", "")
+    if token != EMBED_TOKEN:
+        raise HTTPException(403, "Invalid embed token")
+    r = await db.execute(text("""
+        SELECT id, so_hieu, ten FROM documents WHERE embedding IS NULL ORDER BY id
+    """))
+    rows = r.fetchall()
+    return {"items": [{"id": row.id, "so_hieu": row.so_hieu or "", "ten": row.ten or ""} for row in rows],
+            "total": len(rows)}
+
 import os as _os
 from fastapi.responses import FileResponse as _FileResponse
 
