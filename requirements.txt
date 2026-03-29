@@ -11,3 +11,5 @@ python-multipart==0.0.12
 python-dotenv==1.0.1
 pydantic==2.9.2
 aiofiles==24.1.0
+beautifulsoup4==4.12.3
+anthropic>=0.39.0
