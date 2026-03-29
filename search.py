@@ -91,11 +91,11 @@ async def search_semantic(db: AsyncSession, q: str, filters: dict, limit: int, o
         r = await db.execute(text(f"""
             SELECT id, so_hieu, ten, loai, ngay_ban_hanh, tinh_trang, hl, sac_thue,
                    category_name, github_path, hieu_luc_index, LEFT(tom_tat, 300) as snippet, 'documents' as source,
-                   1-(embedding <=> :emb::vector) AS score
+                   1-(embedding <=> CAST(:emb AS vector)) AS score
             FROM documents
             {where}
             {"AND" if where else "WHERE"} embedding IS NOT NULL
-            ORDER BY embedding <=> :emb::vector
+            ORDER BY embedding <=> CAST(:emb AS vector)
             LIMIT :limit
         """), params)
         rows = [dict(row) for row in r.mappings().all()]
@@ -105,9 +105,66 @@ async def search_semantic(db: AsyncSession, q: str, filters: dict, limit: int, o
         print(f"Semantic search error (fallback to keyword): {e}")
         return await search_keyword(db, q, filters, limit, offset)
 
+
+async def search_semantic_cv(db: AsyncSession, q: str, filters: dict, limit: int, offset: int):
+    emb = await embed_text(q)
+    if not emb:
+        return await search_keyword_cv(db, q, filters, limit, offset)
+    where_parts = ['embedding IS NOT NULL']
+    params = {}
+    if filters.get('sac_thue'):
+        where_parts.append(':sac_thue = ANY(sac_thue)')
+        params['sac_thue'] = filters['sac_thue']
+    where = 'WHERE ' + ' AND '.join(where_parts)
+    params['emb'] = str(emb)
+    params['limit'] = limit + offset
+    try:
+        r = await db.execute(text(f"""
+            SELECT id, so_hieu, ten, co_quan, ngay_ban_hanh, sac_thue, nguon, link_nguon,
+                   1-(embedding <=> CAST(:emb AS vector)) AS score
+            FROM cong_van
+            {where}
+            ORDER BY embedding <=> CAST(:emb AS vector)
+            LIMIT :limit
+        """), params)
+        rows = [dict(row) for row in r.mappings().all()]
+        total = len(rows)
+        return rows[offset:offset+limit], total
+    except Exception as e:
+        print(f'Semantic CV error: {e}')
+        return await search_keyword_cv(db, q, filters, limit, offset)
+
+async def search_keyword_cv(db: AsyncSession, q: str, filters: dict, limit: int, offset: int):
+    where_parts = ['1=1']
+    params = {}
+    if q:
+        where_parts.append("to_tsvector('simple', unaccent(coalesce(so_hieu,'') || ' ' || ten)) @@ plainto_tsquery('simple', unaccent(:q))")
+        params['q'] = q
+    if filters.get('sac_thue'):
+        where_parts.append(':sac_thue = ANY(sac_thue)')
+        params['sac_thue'] = filters['sac_thue']
+    where = 'WHERE ' + ' AND '.join(where_parts)
+    params['limit'] = limit
+    params['offset'] = offset
+    r_count = await db.execute(text(f'SELECT COUNT(*) FROM cong_van {where}'), params)
+    total = r_count.scalar()
+    r = await db.execute(text(f"""
+        SELECT id, so_hieu, ten, co_quan, ngay_ban_hanh, sac_thue, nguon, link_nguon, 0.5 as score
+        FROM cong_van {where}
+        ORDER BY ngay_ban_hanh DESC NULLS LAST
+        LIMIT :limit OFFSET :offset
+    """), params)
+    rows = [dict(row) for row in r.mappings().all()]
+    return rows, total
+
 async def do_search(db: AsyncSession, q: str, type: str, filters: dict, mode: str, limit: int, offset: int):
+    is_cv = type in ("cong_van", "all")
+    is_doc = type in ("documents", "all")
+
     if not q:
-        # Default: return latest docs
+        # Default: return latest
+        if is_cv and not is_doc:
+            return await search_keyword_cv(db, "", filters, limit, offset)
         where, params = build_filters(filters)
         params["limit"] = limit
         params["offset"] = offset
@@ -122,10 +179,16 @@ async def do_search(db: AsyncSession, q: str, type: str, filters: dict, mode: st
         """), params)
         return [dict(row) for row in r.mappings().all()], total
 
+    # cong_van search
+    if is_cv and not is_doc:
+        if mode in ("semantic", "hybrid"):
+            return await search_semantic_cv(db, q, filters, limit, offset)
+        return await search_keyword_cv(db, q, filters, limit, offset)
+
+    # documents search (default)
     if mode == "semantic":
         return await search_semantic(db, q, filters, limit, offset)
     elif mode == "hybrid":
-        # Try semantic first, fallback to keyword if no results
         results, total = await search_semantic(db, q, filters, limit, offset)
         if total == 0:
             return await search_keyword(db, q, filters, limit, offset)
