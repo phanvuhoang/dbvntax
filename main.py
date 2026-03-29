@@ -868,7 +868,27 @@ async def spa_root():
 @app.get("/{full_path:path}")
 async def spa_fallback(full_path: str):
     # Don't intercept API routes (return 404 via normal FastAPI handling)
-    if full_path.startswith("api/"):
+    if full_path.startswith("api/") or full_path.startswith("docs") or full_path.startswith("openapi"):
+        raise HTTPException(status_code=404, detail="Not found")
+    index = "static/index.html"
+    if _os.path.exists(index):
+        return _FileResponse(index)
+    raise HTTPException(status_code=404, detail="Frontend not built")
+
+
+# Serve static assets (JS/CSS bundles)
+if _os.path.isdir("static/assets"):
+    app.mount("/assets", StaticFiles(directory="static/assets"), name="assets")
+
+# SPA fallback — all non-API routes return index.html
+@app.get("/")
+async def spa_root():
+    return _FileResponse("static/index.html")
+
+@app.get("/{full_path:path}")
+async def spa_fallback(full_path: str):
+    # Don't intercept API routes (return 404 via normal FastAPI handling)
+    if full_path.startswith("api/") or full_path.startswith("docs") or full_path.startswith("openapi"):
         raise HTTPException(status_code=404, detail="Not found")
     index = "static/index.html"
     if _os.path.exists(index):
@@ -935,3 +955,6 @@ async def embedding_status(
     """))
     row = r.mappings().first()
     return dict(row)
+
+
+
