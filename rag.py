@@ -17,6 +17,9 @@ CLAUDIBLE_MODEL = "claude-haiku-4-5"  # cheapest, fastest
 OPENAI_KEY     = os.getenv("OPENAI_API_KEY", "")
 OPENAI_MODEL   = "gpt-4o-mini"
 
+ANTHROPIC_KEY   = os.getenv("ANTHROPIC_API_KEY", "")
+ANTHROPIC_MODEL = "claude-haiku-4-5"
+
 SYSTEM_PROMPT = """Bạn là chuyên gia tư vấn thuế Việt Nam. Trả lời câu hỏi dựa HOÀN TOÀN vào các công văn được cung cấp.
 
 Quy tắc:
@@ -115,6 +118,22 @@ Hãy trả lời dựa vào các công văn trên.""",
         return data["choices"][0]["message"]["content"]
 
 
+
+async def ask_anthropic(question: str, context: str) -> str:
+    """Call Anthropic Claude Haiku directly as second fallback."""
+    import anthropic as ant
+    client = ant.AsyncAnthropic(api_key=ANTHROPIC_KEY)
+    msg = await client.messages.create(
+        model=ANTHROPIC_MODEL,
+        max_tokens=1500,
+        system=SYSTEM_PROMPT,
+        messages=[{
+            "role": "user",
+            "content": f"""CÁC CÔNG VĂN THAM KHẢO:\n{context}\n\n---\n\nCÂU HỎI: {question}\n\nHãy trả lời dựa vào các công văn trên."""
+        }]
+    )
+    return msg.content[0].text
+
 async def rag_answer(question: str, cv_list: list[dict]) -> dict:
     """
     Main RAG function.
@@ -139,8 +158,16 @@ async def rag_answer(question: str, cv_list: list[dict]) -> dict:
         except Exception as e:
             print(f"Claudible error: {e}, falling back to OpenAI...")
 
-    # Fallback to OpenAI gpt-4o-mini
+    # Fallback 1: OpenAI gpt-4o-mini
     if answer is None and OPENAI_KEY:
+        try:
+            answer = await ask_openai(question, context)
+            model_used = f"openai/{OPENAI_MODEL}"
+        except Exception as e:
+            print(f"OpenAI error: {e}, trying Anthropic direct...")
+
+    # Fallback 2: Anthropic Claude Haiku direct
+    if answer is None and ANTHROPIC_KEY:
         try:
             answer = await ask_openai(question, context)
             model_used = f"openai/{OPENAI_MODEL}"
