@@ -138,6 +138,7 @@ async def rag_answer(question: str, cv_list: list[dict]) -> dict:
     """
     Main RAG function.
     Returns: { answer, model_used, sources }
+    Priority: OpenAI gpt-4o-mini → Anthropic Claude Haiku → Claudible (fallback)
     """
     if not cv_list:
         return {
@@ -150,29 +151,29 @@ async def rag_answer(question: str, cv_list: list[dict]) -> dict:
     answer = None
     model_used = None
 
-    # Try Claudible first
-    if CLAUDIBLE_KEY:
+    # Primary: OpenAI gpt-4o-mini
+    if OPENAI_KEY:
+        try:
+            answer = await ask_openai(question, context)
+            model_used = f"openai/{OPENAI_MODEL}"
+        except Exception as e:
+            print(f"OpenAI error: {e}, falling back to Anthropic...")
+
+    # Fallback 1: Anthropic Claude Haiku direct
+    if answer is None and ANTHROPIC_KEY:
+        try:
+            answer = await ask_anthropic(question, context)
+            model_used = f"anthropic/{ANTHROPIC_MODEL}"
+        except Exception as e:
+            print(f"Anthropic error: {e}, trying Claudible...")
+
+    # Fallback 2: Claudible
+    if answer is None and CLAUDIBLE_KEY:
         try:
             answer = await ask_claudible(question, context)
             model_used = f"claudible/{CLAUDIBLE_MODEL}"
         except Exception as e:
-            print(f"Claudible error: {e}, falling back to OpenAI...")
-
-    # Fallback 1: OpenAI gpt-4o-mini
-    if answer is None and OPENAI_KEY:
-        try:
-            answer = await ask_openai(question, context)
-            model_used = f"openai/{OPENAI_MODEL}"
-        except Exception as e:
-            print(f"OpenAI error: {e}, trying Anthropic direct...")
-
-    # Fallback 2: Anthropic Claude Haiku direct
-    if answer is None and ANTHROPIC_KEY:
-        try:
-            answer = await ask_openai(question, context)
-            model_used = f"openai/{OPENAI_MODEL}"
-        except Exception as e:
-            print(f"OpenAI error: {e}")
+            print(f"Claudible error: {e}")
             answer = "Lỗi hệ thống: không thể kết nối AI. Vui lòng thử lại sau."
             model_used = "error"
 
