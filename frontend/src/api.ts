@@ -25,6 +25,8 @@ export interface SearchParams {
   loai?: string;
   year_from?: number;
   year_to?: number;
+  date_from?: string;
+  date_to?: string;
   tinh_trang?: string;
   hl?: number;
   date_at?: string;
@@ -39,8 +41,10 @@ function buildSearchURL(params: SearchParams): string {
   if (params.type && params.type !== 'all') p.set('type', params.type);
   if (params.sac_thue) p.set('sac_thue', params.sac_thue);
   if (params.loai) p.set('loai', params.loai);
-  if (params.year_from) p.set('year_from', String(params.year_from));
-  if (params.year_to) p.set('year_to', String(params.year_to));
+  if (params.date_from) p.set('date_from', params.date_from);
+  else if (params.year_from) p.set('year_from', String(params.year_from));
+  if (params.date_to) p.set('date_to', params.date_to);
+  else if (params.year_to) p.set('year_to', String(params.year_to));
   if (params.tinh_trang) p.set('tinh_trang', params.tinh_trang);
   if (params.hl !== undefined) p.set('hl', String(params.hl));
   if (params.date_at) p.set('date_at', params.date_at);
@@ -74,6 +78,8 @@ export interface CongVanParams {
   tinh_trang?: string;
   year_from?: number;
   year_to?: number;
+  date_from?: string;
+  date_to?: string;
   limit?: number;
   offset?: number;
   mode?: string;
@@ -86,8 +92,10 @@ function buildCongVanURL(params: CongVanParams): string {
   if (params.sac_thue) p.set('sac_thue', params.sac_thue);
   if (params.chu_de) p.set('chu_de', params.chu_de);
   if (params.tinh_trang) p.set('tinh_trang', params.tinh_trang);
-  if (params.year_from) p.set('year_from', String(params.year_from));
-  if (params.year_to) p.set('year_to', String(params.year_to));
+  if (params.date_from) p.set('date_from', params.date_from);
+  else if (params.year_from) p.set('year_from', String(params.year_from));
+  if (params.date_to) p.set('date_to', params.date_to);
+  else if (params.year_to) p.set('year_to', String(params.year_to));
   if (params.mode) p.set('mode', params.mode);
   if (params.type) p.set('type', params.type);
   p.set('limit', String(params.limit ?? 20));

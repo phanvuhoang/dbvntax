@@ -351,6 +351,7 @@ async def search(
     q: str = "", type: str = "all",
     sac_thue: Optional[str] = None, loai: Optional[str] = None,
     year_from: Optional[int] = None, year_to: Optional[int] = None,
+    date_from: Optional[str] = None, date_to: Optional[str] = None,
     tinh_trang: Optional[str] = None, hl: Optional[int] = None,
     date_at: Optional[str] = None, mode: str = "hybrid",
     limit: int = Query(20, le=100), offset: int = 0,
@@ -358,8 +359,9 @@ async def search(
     user=Depends(get_optional_user),
 ):
     filters = {"sac_thue": sac_thue, "loai": loai,
-               "year_from": year_from, "year_to": year_to, "tinh_trang": tinh_trang,
-               "hl": hl, "date_at": date_at}
+               "year_from": year_from, "year_to": year_to,
+               "date_from": date_from, "date_to": date_to,
+               "tinh_trang": tinh_trang, "hl": hl, "date_at": date_at}
     results, total = await do_search(db, q, type, filters, mode, limit, offset)
     if user and q:
         await log_query(db, user["id"], q, f"search_{mode}", total)
@@ -436,6 +438,7 @@ async def cong_van_list(
     q: str = "", sac_thue: Optional[str] = None, nguon: Optional[str] = None,
     chu_de: Optional[str] = None, tinh_trang: Optional[str] = None,
     year_from: Optional[int] = None, year_to: Optional[int] = None,
+    date_from: Optional[str] = None, date_to: Optional[str] = None,
     mode: Optional[str] = None,
     limit: int = Query(20, le=100), offset: int = 0,
     db: AsyncSession = Depends(get_db),
@@ -443,14 +446,17 @@ async def cong_van_list(
     if q and mode in ("semantic", "hybrid"):
         filters = {}
         if sac_thue: filters["sac_thue"] = sac_thue
-        if year_from: filters["year_from"] = year_from
-        if year_to: filters["year_to"] = year_to
+        if date_from: filters["date_from"] = date_from
+        elif year_from: filters["year_from"] = year_from
+        if date_to: filters["date_to"] = date_to
+        elif year_to: filters["year_to"] = year_to
         results, total = await search_semantic_cv(db, q, filters, limit, offset)
         return {"total": total, "items": results}
     results, total = await list_cong_van(
         db, q, sac_thue, nguon, limit, offset,
         year_from=year_from, year_to=year_to,
         chu_de=chu_de, tinh_trang=tinh_trang,
+        date_from=date_from, date_to=date_to,
     )
     return {"total": total, "items": results}
 

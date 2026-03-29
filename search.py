@@ -32,10 +32,16 @@ def build_filters(filters: dict) -> tuple:
     if filters.get("loai"):
         where.append("loai = :loai")
         params["loai"] = filters["loai"]
-    if filters.get("year_from"):
+    if filters.get("date_from"):
+        where.append("ngay_ban_hanh >= :date_from")
+        params["date_from"] = filters["date_from"]
+    elif filters.get("year_from"):
         where.append("EXTRACT(YEAR FROM ngay_ban_hanh) >= :year_from")
         params["year_from"] = filters["year_from"]
-    if filters.get("year_to"):
+    if filters.get("date_to"):
+        where.append("ngay_ban_hanh <= :date_to")
+        params["date_to"] = filters["date_to"]
+    elif filters.get("year_to"):
         where.append("EXTRACT(YEAR FROM ngay_ban_hanh) <= :year_to")
         params["year_to"] = filters["year_to"]
     if filters.get("tinh_trang"):
@@ -257,7 +263,7 @@ async def get_article_by_id(db: AsyncSession, art_id: int):
     row = r.mappings().first()
     return dict(row) if row else None
 
-async def list_cong_van(db: AsyncSession, q: str, sac_thue: str, nguon: str, limit: int, offset: int, year_from: int = None, year_to: int = None, chu_de: str = None, tinh_trang: str = None):
+async def list_cong_van(db: AsyncSession, q: str, sac_thue: str, nguon: str, limit: int, offset: int, year_from: int = None, year_to: int = None, chu_de: str = None, tinh_trang: str = None, date_from: str = None, date_to: str = None):
     where = ["1=1"]
     params = {}
     if q:
@@ -269,10 +275,16 @@ async def list_cong_van(db: AsyncSession, q: str, sac_thue: str, nguon: str, lim
     if nguon:
         where.append("nguon = :nguon")
         params['nguon'] = nguon
-    if year_from:
+    if date_from:
+        where.append("ngay_ban_hanh >= :date_from")
+        params["date_from"] = date_from
+    elif year_from:
         where.append("EXTRACT(YEAR FROM ngay_ban_hanh) >= :year_from")
         params["year_from"] = year_from
-    if year_to:
+    if date_to:
+        where.append("ngay_ban_hanh <= :date_to")
+        params["date_to"] = date_to
+    elif year_to:
         where.append("EXTRACT(YEAR FROM ngay_ban_hanh) <= :year_to")
         params["year_to"] = year_to
     if chu_de:

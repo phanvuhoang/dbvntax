@@ -10,8 +10,9 @@ import ContentPanel from '../components/ContentPanel';
 import AuthModal from '../components/AuthModal';
 import QuickAnalysis from '../components/QuickAnalysis';
 import Divider from '../components/Divider';
+import AskAIPage from './AskAIPage';
 
-type Tab = 'vanban' | 'congvan';
+type Tab = 'vanban' | 'congvan' | 'ask_ai';
 
 const LIMIT = 20;
 
@@ -57,8 +58,8 @@ export default function HomePage() {
   const searchResult = useSearch({
     q: query,
     sac_thue: category ? (CATEGORY_TO_DB[category] ?? category) : undefined,
-    year_from: dateFrom ? parseInt(dateFrom.split('-')[0]) : undefined,
-    year_to: dateTo ? parseInt(dateTo.split('-')[0]) : undefined,
+    date_from: dateFrom || undefined,
+    date_to: dateTo || undefined,
     mode: 'hybrid',
     limit: LIMIT,
     offset: (page - 1) * LIMIT,
@@ -68,8 +69,8 @@ export default function HomePage() {
     q: query,
     sac_thue: category ? (CATEGORY_TO_DB[category] ?? category) : undefined,
     chu_de: selectedChuDe,
-    year_from: dateFrom ? parseInt(dateFrom.split('-')[0]) : undefined,
-    year_to: dateTo ? parseInt(dateTo.split('-')[0]) : undefined,
+    date_from: dateFrom || undefined,
+    date_to: dateTo || undefined,
     mode: query ? 'semantic' : undefined,
     limit: LIMIT,
     offset: (page - 1) * LIMIT,
@@ -94,8 +95,7 @@ export default function HomePage() {
 
   const handleTabChange = useCallback((t: Tab) => {
     setTab(t); setPage(1); setSelectedItem(null);
-    setSelectedChuDe('');
-    setCategory('');
+    setSelectedChuDe(''); setCategory('');
   }, []);
 
   const handleDateRangeChange = useCallback((from: string, to: string) => {
@@ -129,7 +129,11 @@ export default function HomePage() {
           <span className="text-lg font-bold text-primary whitespace-nowrap tracking-tight">⚖️ VNTaxDB</span>
 
           <div className="flex gap-0.5">
-            {(['vanban', 'congvan'] as const).map((t) => (
+            {([
+              ['vanban', 'Văn bản'],
+              ['congvan', 'Công văn'],
+              ['ask_ai', '🤖 Hỏi đáp AI'],
+            ] as const).map(([t, label]) => (
               <button
                 key={t}
                 onClick={() => handleTabChange(t)}
@@ -139,7 +143,7 @@ export default function HomePage() {
                     : 'text-gray-500 hover:text-primary hover:bg-primary-light'
                 }`}
               >
-                {t === 'vanban' ? 'Văn bản' : 'Công văn'}
+                {label}
               </button>
             ))}
           </div>
@@ -200,8 +204,15 @@ export default function HomePage() {
         </div>
       </header>
 
-      {/* Main Content */}
-      <div className="flex flex-1 overflow-hidden relative select-none">
+      {/* Ask AI tab — full content area */}
+      {tab === 'ask_ai' && (
+        <div className="flex flex-1 overflow-hidden">
+          <AskAIPage />
+        </div>
+      )}
+
+      {/* Main Content — 3-panel layout (vanban / congvan tabs) */}
+      {tab !== 'ask_ai' && <div className="flex flex-1 overflow-hidden relative select-none">
         {sidebarOpen && (
           <div className="fixed inset-0 bg-black/30 z-30 md:hidden" onClick={() => setSidebarOpen(false)} />
         )}
@@ -289,7 +300,7 @@ export default function HomePage() {
         <div className={`flex flex-1 overflow-hidden ${mobileContentFullscreen ? 'w-full' : ''}`}>
           <ContentPanel
             item={selectedItem}
-            tab={tab}
+            tab={tab as 'vanban' | 'congvan'}
             token={auth.token}
             onRequestLogin={requestLogin}
             onBack={mobileContentFullscreen ? () => setSelectedItem(null) : undefined}
@@ -358,7 +369,7 @@ export default function HomePage() {
             </div>
           </div>
         )}
-      </div>
+      </div>}
 
       {/* Auth modal */}
       <AuthModal
