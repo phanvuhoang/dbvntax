@@ -80,7 +80,12 @@ async def search_keyword(db: AsyncSession, q: str, filters: dict, limit: int, of
     rows = [dict(row) for row in r.mappings().all()]
     return rows, total
 
-SEMANTIC_THRESHOLD = 0.50  # min cosine similarity score
+SEMANTIC_THRESHOLD_MIN = 0.45  # floor
+SEMANTIC_THRESHOLD_GAP = 0.15  # top_score - gap = adaptive threshold
+
+def adaptive_threshold(top_score: float) -> float:
+    """Tính threshold động: max(floor, top_score - gap)"""
+    return max(SEMANTIC_THRESHOLD_MIN, top_score - SEMANTIC_THRESHOLD_GAP)
 
 async def search_semantic(db: AsyncSession, q: str, filters: dict, limit: int, offset: int):
     emb = await embed_text(q)
@@ -89,7 +94,18 @@ async def search_semantic(db: AsyncSession, q: str, filters: dict, limit: int, o
     where, params = build_filters(filters)
     and_kw = "AND" if where else "WHERE"
     params["emb"] = str(emb)
-    params["threshold"] = SEMANTIC_THRESHOLD
+    # Get top score first for adaptive threshold
+    params["top_limit"] = 1
+    r_top = await db.execute(text(f"""
+        SELECT 1-(embedding <=> CAST(:emb AS vector)) AS score
+        FROM documents {where} {and_kw} embedding IS NOT NULL
+        ORDER BY embedding <=> CAST(:emb AS vector) LIMIT 1
+    """), params)
+    top_row = r_top.fetchone()
+    if not top_row:
+        return await search_keyword(db, q, filters, limit, offset)
+    threshold = adaptive_threshold(float(top_row[0]))
+    params["threshold"] = threshold
     try:
         # Count total matching above threshold
         r_count = await db.execute(text(f"""
@@ -123,20 +139,33 @@ async def search_semantic_cv(db: AsyncSession, q: str, filters: dict, limit: int
     emb = await embed_text(q)
     if not emb:
         return await search_keyword_cv(db, q, filters, limit, offset)
-    where_parts = ['embedding IS NOT NULL', '1-(embedding <=> CAST(:emb AS vector)) >= :threshold']
-    params = {'threshold': SEMANTIC_THRESHOLD}
+    where_parts = ['embedding IS NOT NULL']
+    params = {}
     if filters.get('sac_thue'):
         where_parts.append(':sac_thue = ANY(sac_thue)')
         params['sac_thue'] = filters['sac_thue']
     where = 'WHERE ' + ' AND '.join(where_parts)
     params['emb'] = str(emb)
     try:
+        # Adaptive threshold: get top score first
+        r_top = await db.execute(text(f"""
+            SELECT 1-(embedding <=> CAST(:emb AS vector)) AS score
+            FROM cong_van {where} ORDER BY embedding <=> CAST(:emb AS vector) LIMIT 1
+        """), params)
+        top_row = r_top.fetchone()
+        if not top_row:
+            return await search_keyword_cv(db, q, filters, limit, offset)
+        threshold = adaptive_threshold(float(top_row[0]))
+        where_parts.append('1-(embedding <=> CAST(:emb AS vector)) >= :threshold')
+        where = 'WHERE ' + ' AND '.join(where_parts)
+        params['threshold'] = threshold
         r_count = await db.execute(text(f'SELECT COUNT(*) FROM cong_van {where}'), params)
         total = r_count.scalar() or 0
         params['limit'] = limit
         params['offset'] = offset
         r = await db.execute(text(f"""
             SELECT id, so_hieu, ten, co_quan, ngay_ban_hanh, sac_thue, nguon, link_nguon,
+                   noi_dung_day_du,
                    1-(embedding <=> CAST(:emb AS vector)) AS score
             FROM cong_van
             {where}

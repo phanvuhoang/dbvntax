@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db, engine
 from search import do_search, get_doc_by_id, get_cv_by_id, get_article_by_id, list_cong_van, search_semantic_cv
+from rag import rag_answer
 from ai import stream_quick_analysis, stream_analyze_doc, do_factcheck, do_related
 
 log = logging.getLogger("vntaxdb")
@@ -952,6 +953,31 @@ if _os.path.isdir("static/assets"):
 @app.get("/")
 async def spa_root():
     return _FileResponse("static/index.html")
+
+
+class AskRequest(BaseModel):
+    question: str
+    top_k: int = 15  # số CV đưa vào LLM
+
+@app.post("/api/ask")
+async def ask(req: AskRequest, db: AsyncSession = Depends(get_db)):
+    """RAG: tìm CV liên quan → Claude/GPT trả lời câu hỏi thuế."""
+    if not req.question or len(req.question.strip()) < 5:
+        raise HTTPException(400, "Câu hỏi quá ngắn")
+
+    # Semantic search top_k CV
+    filters = {}
+    results, total = await search_semantic_cv(db, req.question, filters, limit=req.top_k, offset=0)
+
+    # RAG
+    answer_data = await rag_answer(req.question, results)
+    return {
+        "question": req.question,
+        "answer": answer_data["answer"],
+        "model_used": answer_data["model_used"],
+        "sources_count": len(results),
+        "sources": answer_data["sources"],
+    }
 
 @app.get("/{full_path:path}")
 async def spa_fallback(full_path: str):
