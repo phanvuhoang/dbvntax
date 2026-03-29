@@ -888,7 +888,7 @@ async def update_embeddings(
         try:
             emb_str = "[" + ",".join(str(x) for x in item.embedding) + "]"
             await db.execute(
-                text(f"UPDATE {req.table} SET embedding = :emb::vector WHERE id = :id"),
+                text(f"UPDATE {req.table} SET embedding = CAST(:emb AS vector) WHERE id = :id"),
                 {"emb": emb_str, "id": item.id}
             )
             updated += 1
