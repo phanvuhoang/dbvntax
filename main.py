@@ -874,3 +874,64 @@ async def spa_fallback(full_path: str):
     if _os.path.exists(index):
         return _FileResponse(index)
     raise HTTPException(status_code=404, detail="Frontend not built")
+
+
+# ── Embedding Push Endpoint (called by Colab) ────────────────────────────────
+EMBED_TOKEN = os.environ.get("EMBED_TOKEN", "colab-embed-2026")
+
+class EmbeddingBatch(BaseModel):
+    table: str          # "documents" or "cong_van"
+    embeddings: list    # [{"id": int, "embedding": [float, ...]}, ...]
+
+@app.post("/api/admin/update-embeddings")
+async def update_embeddings(
+    req: EmbeddingBatch,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    # Simple token auth
+    token = request.headers.get("X-Embed-Token", "")
+    if token != EMBED_TOKEN:
+        raise HTTPException(403, "Invalid embed token")
+
+    if req.table not in ("documents", "cong_van"):
+        raise HTTPException(400, "Invalid table")
+
+    if not req.embeddings:
+        return {"updated": 0}
+
+    updated = 0
+    errors = 0
+    for item in req.embeddings:
+        try:
+            emb_str = "[" + ",".join(str(x) for x in item["embedding"]) + "]"
+            await db.execute(
+                text(f"UPDATE {req.table} SET embedding = :emb::vector WHERE id = :id"),
+                {"emb": emb_str, "id": item["id"]}
+            )
+            updated += 1
+        except Exception as e:
+            errors += 1
+            log.warning(f"Embedding update error id={item.get('id')}: {e}")
+
+    await db.commit()
+    return {"updated": updated, "errors": errors, "table": req.table}
+
+@app.get("/api/admin/embedding-status")
+async def embedding_status(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    token = request.headers.get("X-Embed-Token", "")
+    if token != EMBED_TOKEN:
+        raise HTTPException(403, "Invalid embed token")
+
+    r = await db.execute(text("""
+        SELECT
+          (SELECT COUNT(*) FROM documents) AS docs_total,
+          (SELECT COUNT(*) FROM documents WHERE embedding IS NOT NULL) AS docs_embedded,
+          (SELECT COUNT(*) FROM cong_van) AS cv_total,
+          (SELECT COUNT(*) FROM cong_van WHERE embedding IS NOT NULL) AS cv_embedded
+    """))
+    row = r.mappings().first()
+    return dict(row)
