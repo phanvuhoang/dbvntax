@@ -80,7 +80,7 @@ async def search_keyword(db: AsyncSession, q: str, filters: dict, limit: int, of
     rows = [dict(row) for row in r.mappings().all()]
     return rows, total
 
-SEMANTIC_THRESHOLD = 0.30  # min cosine similarity score
+SEMANTIC_THRESHOLD = 0.50  # min cosine similarity score
 
 async def search_semantic(db: AsyncSession, q: str, filters: dict, limit: int, offset: int):
     emb = await embed_text(q)
