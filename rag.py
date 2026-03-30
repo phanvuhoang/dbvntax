@@ -508,7 +508,7 @@ async def ask_gemini(question: str, context: str, system: str) -> str:
             f"{GEMINI_API_BASE}/models/{GEMINI_MODEL}:generateContent?key={GEMINI_KEY}",
             json={
                 "contents": [{"parts": [{"text": combined}]}],
-                "generationConfig": {"maxOutputTokens": 2000}
+                "generationConfig": {"maxOutputTokens": 8192}
             }
         )
         r.raise_for_status()
@@ -556,26 +556,30 @@ async def rag_answer(question: str, cv_list: list[dict],
     model_used = None
 
     async def _call_anthropic(ant_model: str) -> Optional[str]:
-        """Gọi qua Claudible (base_url override) — free. Fallback Anthropic direct nếu cần."""
+        """Gọi qua Claudible bằng OpenAI-completions format (/v1/chat/completions)."""
+        if not CLAUDIBLE_AUTH_TOKEN:
+            return None
         try:
-            import anthropic as ant
-            # Claudible: dùng ANTHROPIC_AUTH_TOKEN + base_url
-            if CLAUDIBLE_AUTH_TOKEN:
-                client = ant.AsyncAnthropic(
-                    api_key=CLAUDIBLE_AUTH_TOKEN,
-                    base_url=CLAUDIBLE_BASE_URL,
+            async with httpx.AsyncClient(timeout=120) as client:
+                r = await client.post(
+                    f"{CLAUDIBLE_BASE_URL}/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {CLAUDIBLE_AUTH_TOKEN}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": ant_model,
+                        "max_tokens": 8192,
+                        "messages": [
+                            {"role": "system", "content": system},
+                            {"role": "user",   "content": user_msg},
+                        ],
+                    },
                 )
-            elif ANTHROPIC_KEY:
-                client = ant.AsyncAnthropic(api_key=ANTHROPIC_KEY)
-            else:
-                return None
-            msg = await client.messages.create(
-                model=ant_model, max_tokens=8192, system=system,
-                messages=[{"role": "user", "content": user_msg}]
-            )
-            return msg.content[0].text
+                r.raise_for_status()
+                return r.json()["choices"][0]["message"]["content"]
         except Exception as e:
-            print(f"Anthropic {ant_model} error: {e}")
+            print(f"Claudible {ant_model} error: {e}")
             return None
 
     async def _call_openai(oai_model: str) -> Optional[str]:
