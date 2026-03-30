@@ -1252,6 +1252,7 @@ async def admin_documents_list(
     q: Optional[str] = None,
     loai: Optional[str] = None,
     sac_thue: Optional[str] = None,
+    anchor_only: Optional[bool] = False,
     limit: int = Query(50, le=200),
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
@@ -1268,13 +1269,15 @@ async def admin_documents_list(
     if sac_thue:
         where.append(":sac_thue = ANY(sac_thue)")
         params["sac_thue"] = sac_thue
+    if anchor_only:
+        where.append("is_anchor = TRUE")
     clause = "WHERE " + " AND ".join(where)
     r = await db.execute(text(f"""
         SELECT id, so_hieu, ten, loai, co_quan, nguoi_ky, ngay_ban_hanh,
                hieu_luc_tu, het_hieu_luc_tu, tinh_trang, sac_thue,
-               importance, ngay_cong_bao, so_cong_bao, tom_tat
+               importance, ngay_cong_bao, so_cong_bao, tom_tat, is_anchor
         FROM documents {clause}
-        ORDER BY ngay_ban_hanh DESC NULLS LAST
+        ORDER BY is_anchor DESC NULLS LAST, ngay_ban_hanh DESC NULLS LAST
         LIMIT :limit OFFSET :offset
     """), params)
     rows = [dict(row) for row in r.mappings().all()]

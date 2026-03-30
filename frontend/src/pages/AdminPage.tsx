@@ -73,6 +73,7 @@ export default function AdminPage() {
   const [docQuery, setDocQuery] = useState('');
   const [docLoai, setDocLoai] = useState('');
   const [docSacThue, setDocSacThue] = useState('');
+  const [docAnchorOnly, setDocAnchorOnly] = useState(false);
   const [docItems, setDocItems] = useState<AdminDoc[]>([]);
   const [docTotal, setDocTotal] = useState(0);
   const [docLoading, setDocLoading] = useState(false);
@@ -213,6 +214,7 @@ export default function AdminPage() {
     if (docQuery) p.set('q', docQuery);
     if (docLoai) p.set('loai', docLoai);
     if (docSacThue) p.set('sac_thue', docSacThue);
+    if (docAnchorOnly) p.set('anchor_only', 'true');
     fetch(`/api/admin/documents-list?${p}`, { headers: authHeaders(token) })
       .then(r => r.json()).then(d => { setDocItems(d.items || []); setDocTotal(d.total || 0); setDocOffset(offset); })
       .catch(() => {}).finally(() => setDocLoading(false));
@@ -311,7 +313,7 @@ export default function AdminPage() {
             key={t}
             onClick={() => {
               setActiveTab(t);
-              if (t === 'documents' && docItems.length === 0) loadDocs(0);
+              if (t === 'documents') loadDocs(0);
               if (t === 'watchlist' && wlItems.length === 0) loadWatchlist();
             }}
             className={`px-4 py-1.5 text-sm font-medium rounded-t transition ${
@@ -588,6 +590,12 @@ export default function AdminPage() {
                 <option value="">Sắc thuế</option>
                 {SAC_THUE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
+              <label className="flex items-center gap-1 text-sm cursor-pointer select-none">
+                <input type="checkbox" checked={docAnchorOnly}
+                  onChange={e => setDocAnchorOnly(e.target.checked)}
+                  className="w-3.5 h-3.5" />
+                <span>⭐ Chỉ Anchor</span>
+              </label>
               <button onClick={() => loadDocs(0)} disabled={docLoading}
                 className="px-3 py-1.5 bg-primary text-white text-sm rounded hover:bg-primary-dark disabled:opacity-50 transition">
                 {docLoading ? 'Đang tải...' : '🔍 Tìm'}
