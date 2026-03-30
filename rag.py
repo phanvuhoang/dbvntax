@@ -12,9 +12,16 @@ import unicodedata
 import httpx
 from typing import Optional
 
-CLAUDIBLE_BASE  = os.getenv("CLAUDIBLE_BASE_URL", "https://claudible.io/v1")
-CLAUDIBLE_KEY   = os.getenv("CLAUDIBLE_API_KEY", "")
-CLAUDIBLE_MODEL = "claude-haiku-4-5"   # DEFAULT — 200K context, free via Claudible
+# Claudible — Anthropic SDK với base_url override
+# Docs: https://claudible.io/docs/installation
+# Dùng ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN (set trong Coolify env vars)
+CLAUDIBLE_BASE_URL  = os.getenv("ANTHROPIC_BASE_URL", "https://claudible.io")
+CLAUDIBLE_AUTH_TOKEN = os.getenv("ANTHROPIC_AUTH_TOKEN", "")
+
+# Model names theo Claudible (dấu chấm, không phải gạch ngang)
+CLAUDIBLE_HAIKU  = os.getenv("ANTHROPIC_DEFAULT_HAIKU_MODEL",  "claude-haiku-4.5")
+CLAUDIBLE_SONNET = os.getenv("ANTHROPIC_DEFAULT_SONNET_MODEL", "claude-sonnet-4.6")
+CLAUDIBLE_OPUS   = os.getenv("ANTHROPIC_DEFAULT_OPUS_MODEL",   "claude-opus-4.6")
 
 GEMINI_KEY   = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
@@ -22,11 +29,7 @@ GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1"  # fallback 2
 
 OPENAI_KEY   = os.getenv("OPENAI_API_KEY", "")   # fallback 3 (intent only + last resort)
 
-ANTHROPIC_KEY    = os.getenv("ANTHROPIC_API_KEY", "")
-ANTHROPIC_MODELS = {
-    "anthropic/claude-haiku-4-5":  "claude-haiku-4-5",
-    "anthropic/claude-sonnet-4-6": "claude-sonnet-4-6",
-}
+ANTHROPIC_KEY    = os.getenv("ANTHROPIC_API_KEY", "")  # fallback nếu Claudible down
 
 # Intent analysis model (lightweight, fast)
 INTENT_MODEL_OPENAI  = "gpt-4o-mini"
@@ -537,11 +540,19 @@ async def rag_answer(question: str, cv_list: list[dict],
     model_used = None
 
     async def _call_anthropic(ant_model: str) -> Optional[str]:
-        if not ANTHROPIC_KEY:
-            return None
+        """Gọi qua Claudible (base_url override) — free. Fallback Anthropic direct nếu cần."""
         try:
             import anthropic as ant
-            client = ant.AsyncAnthropic(api_key=ANTHROPIC_KEY)
+            # Claudible: dùng ANTHROPIC_AUTH_TOKEN + base_url
+            if CLAUDIBLE_AUTH_TOKEN:
+                client = ant.AsyncAnthropic(
+                    api_key=CLAUDIBLE_AUTH_TOKEN,
+                    base_url=CLAUDIBLE_BASE_URL,
+                )
+            elif ANTHROPIC_KEY:
+                client = ant.AsyncAnthropic(api_key=ANTHROPIC_KEY)
+            else:
+                return None
             msg = await client.messages.create(
                 model=ant_model, max_tokens=8192, system=system,
                 messages=[{"role": "user", "content": user_msg}]
@@ -580,8 +591,8 @@ async def rag_answer(question: str, cv_list: list[dict],
 
     # ── Dispatch theo model đã chọn ─────────────────────────────────
     MODEL_MAP = {
-        "anthropic/claude-haiku-4-5":  lambda: _call_anthropic("claude-haiku-4-5-20251001"),
-        "anthropic/claude-sonnet-4-6": lambda: _call_anthropic("claude-sonnet-4-6"),
+        "anthropic/claude-haiku-4-5":  lambda: _call_anthropic(CLAUDIBLE_HAIKU),   # "claude-haiku-4.5"
+        "anthropic/claude-sonnet-4-6": lambda: _call_anthropic(CLAUDIBLE_SONNET),  # "claude-sonnet-4.6"
         "openai/gpt-4o-mini":          lambda: _call_openai("gpt-4o-mini"),
         "openai/gpt-4o":               lambda: _call_openai("gpt-4o"),
         "google/gemini-2.5-flash":     _call_gemini,
