@@ -288,6 +288,87 @@ async def search_semantic_docs_for_rag(db: AsyncSession, q: str, top_k: int = 5)
         print(f"search_semantic_docs_for_rag error: {e}")
         return []
 
+async def search_hybrid_cv(db: AsyncSession, queries: list[str],
+                           sac_thue: str = None, top_k: int = 15) -> list[dict]:
+    """
+    Hybrid search: BM25 full-text + vector semantic, merge score.
+    BM25 chính xác với thuật ngữ pháp lý (không nhầm 'trích trước' vs 'trước bạ').
+    Vector tốt với câu hỏi ngữ nghĩa.
+
+    Formula: hybrid_score = 0.5 * vector_score + 0.5 * bm25_score (normalized)
+    """
+    import asyncio as _asyncio
+
+    async def _vector_search(q: str) -> list[dict]:
+        filters = {"sac_thue": sac_thue} if sac_thue else {}
+        rows, _ = await search_semantic_cv(db, q, filters, limit=top_k * 2, offset=0)
+        return rows
+
+    async def _bm25_search(q: str) -> list[dict]:
+        try:
+            st_clause = ""
+            params: dict = {"q": q, "limit": top_k * 2}
+            if sac_thue:
+                st_clause = "AND :sac_thue = ANY(sac_thue)"
+                params["sac_thue"] = sac_thue
+
+            r = await db.execute(text(f"""
+                SELECT id, so_hieu, ten, co_quan, ngay_ban_hanh,
+                       sac_thue, noi_dung_day_du, link_nguon, tinh_trang,
+                       ts_rank(
+                           to_tsvector('simple',
+                               COALESCE(ten,'') || ' ' || COALESCE(noi_dung_day_du,'')),
+                           plainto_tsquery('simple', :q)
+                       ) as bm25_score
+                FROM cong_van
+                WHERE to_tsvector('simple',
+                          COALESCE(ten,'') || ' ' || COALESCE(noi_dung_day_du,''))
+                      @@ plainto_tsquery('simple', :q)
+                {st_clause}
+                ORDER BY bm25_score DESC
+                LIMIT :limit
+            """), params)
+            rows = [dict(row) for row in r.mappings().all()]
+            if rows:
+                max_score = max(float(r.get("bm25_score", 0)) for r in rows) or 1
+                for row in rows:
+                    row["score"] = float(row.get("bm25_score", 0)) / max_score
+            return rows
+        except Exception as e:
+            print(f"BM25 search error: {e}")
+            return []
+
+    # Search song song tất cả queries với cả 2 phương pháp
+    tasks = []
+    for q in queries:
+        tasks.append(_vector_search(q))
+        tasks.append(_bm25_search(q))
+    all_results = await _asyncio.gather(*tasks)
+
+    # Merge: tính hybrid score cho mỗi id
+    seen: dict = {}
+    for results in all_results:
+        for row in results:
+            rid = row.get("id")
+            if not rid:
+                continue
+            if rid not in seen:
+                seen[rid] = dict(row)
+                seen[rid]["vector_score"] = 0.0
+                seen[rid]["bm25_raw"] = 0.0
+            cur_score = float(row.get("score", 0))
+            if "bm25_score" in row:
+                seen[rid]["bm25_raw"] = max(seen[rid]["bm25_raw"], cur_score)
+            else:
+                seen[rid]["vector_score"] = max(seen[rid]["vector_score"], cur_score)
+
+    for item in seen.values():
+        item["score"] = 0.5 * item["vector_score"] + 0.5 * item["bm25_raw"]
+
+    merged = sorted(seen.values(), key=lambda x: x["score"], reverse=True)
+    return merged[:top_k]
+
+
 async def search_multi_query_cv(db: AsyncSession, queries: list[str], sac_thue: str = None,
                                 top_k: int = 15) -> list[dict]:
     """

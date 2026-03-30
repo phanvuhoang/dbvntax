@@ -40,7 +40,7 @@ interface AdminDoc {
   co_quan: string | null; nguoi_ky: string | null;
   ngay_ban_hanh: string | null; hieu_luc_tu: string | null;
   het_hieu_luc_tu: string | null; tinh_trang: string | null;
-  sac_thue: string[]; importance: number | null;
+  sac_thue: string[]; importance: number | null; is_anchor: boolean;
   ngay_cong_bao: string | null; so_cong_bao: string | null; tom_tat: string | null;
 }
 interface DocRelation {
@@ -613,7 +613,12 @@ export default function AdminPage() {
                     <tbody>
                       {docItems.map(doc => (
                         <tr key={doc.id} className="border-b border-gray-100 hover:bg-gray-50">
-                          <td className="px-3 py-2 font-medium text-primary whitespace-nowrap">{doc.so_hieu}</td>
+                          <td className="px-3 py-2 font-medium text-primary whitespace-nowrap">
+                            {doc.so_hieu}
+                            {doc.is_anchor && (
+                              <span className="ml-1 px-1 py-0.5 bg-yellow-100 text-yellow-700 text-xs rounded">⭐ Anchor</span>
+                            )}
+                          </td>
                           <td className="px-3 py-2 text-gray-700 max-w-xs">
                             <p className="truncate" title={doc.ten}>{doc.ten}</p>
                           </td>
@@ -727,6 +732,18 @@ export default function AdminPage() {
                         className="px-2 py-1.5 border border-gray-300 rounded text-sm bg-white focus:border-primary focus:outline-none">
                         {IMPORTANCE_OPTIONS.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
                       </select>
+                    </div>
+                    <div className="flex items-center gap-2 mt-2">
+                      <input
+                        type="checkbox"
+                        id="is_anchor"
+                        checked={editForm.is_anchor || false}
+                        onChange={e => setEditForm(f => ({ ...f, is_anchor: e.target.checked }))}
+                        className="w-4 h-4 text-primary"
+                      />
+                      <label htmlFor="is_anchor" className="text-sm font-medium">
+                        ⭐ Anchor — VB nền tảng (RAG luôn load full text)
+                      </label>
                     </div>
                     <div className="flex gap-3 items-start">
                       <label className="text-xs text-gray-500 w-32 shrink-0 pt-1.5">Tóm tắt</label>

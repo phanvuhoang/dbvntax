@@ -22,10 +22,10 @@ from search import (
     do_search, get_doc_by_id, get_cv_by_id, get_article_by_id,
     list_cong_van, search_semantic_cv,
     search_semantic_docs_for_rag,
-    search_multi_query_cv,
     search_multi_query_docs,
+    search_hybrid_cv,
 )
-from rag import rag_answer, analyze_intent
+from rag import rag_answer, analyze_intent, load_anchor_docs
 from ai import stream_quick_analysis, stream_analyze_doc, do_factcheck, do_related
 
 log = logging.getLogger("vntaxdb")
@@ -85,6 +85,8 @@ async def lifespan(app: FastAPI):
             await db.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token VARCHAR(64)"))
             await db.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires TIMESTAMPTZ"))
             await db.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS tvpl_url TEXT"))
+            await db.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS is_anchor BOOLEAN DEFAULT FALSE"))
+            await db.execute(text("CREATE INDEX IF NOT EXISTS idx_documents_anchor ON documents(is_anchor, sac_thue) WHERE is_anchor = TRUE"))
             await db.execute(text("""
                 CREATE INDEX IF NOT EXISTS idx_documents_fts
                 ON documents USING GIN (
@@ -1003,6 +1005,7 @@ class DocumentUpdate(BaseModel):
     sac_thue: Optional[List[str]] = None
     tom_tat: Optional[str] = None
     importance: Optional[int] = None
+    is_anchor: Optional[bool] = None
 
 class MissingDocUpdate(BaseModel):
     status: Optional[str] = None
@@ -1010,36 +1013,45 @@ class MissingDocUpdate(BaseModel):
     notes: Optional[str] = None
     tvpl_url: Optional[str] = None
 
+async def _empty_list():
+    return []
+
+
 @app.post("/api/ask")
 async def ask(req: AskRequest, db: AsyncSession = Depends(get_db)):
-    """RAG v4: intent classification + multi-query search + Gemini support."""
+    """RAG v5: Haiku default + anchor docs + hybrid search."""
     if not req.question or len(req.question.strip()) < 5:
         raise HTTPException(400, "Câu hỏi quá ngắn")
 
-    # Step 1: Analyze intent (nếu bật)
+    # Step 1: Analyze intent
     if req.use_intent:
         intent = await analyze_intent(req.question)
     else:
         intent = {
-            "sac_thue": [],
-            "chu_de": req.question,
-            "search_queries": [req.question],
-            "is_timeline": False,
+            "sac_thue": [], "chu_de": req.question,
+            "search_queries": [req.question], "is_timeline": False,
         }
 
-    queries = intent.get("search_queries", [req.question])
-    sac_thue = intent.get("sac_thue", [])
-    # Dùng sac_thue đầu tiên để filter (nếu có)
-    filter_sac_thue = sac_thue[0] if sac_thue else None
+    queries   = intent.get("search_queries", [req.question])
+    sac_thue  = intent.get("sac_thue", [])
+    filter_st = sac_thue[0] if sac_thue else None
+    is_timeline = intent.get("is_timeline", False)
 
-    # Step 2: Multi-query search song song
-    docs, cv_results = await asyncio.gather(
-        search_multi_query_docs(db, queries, top_k=req.docs_top_k),
-        search_multi_query_cv(db, queries, sac_thue=filter_sac_thue, top_k=req.top_k)
+    # Step 2: Load anchor docs + hybrid CV search song song
+    anchor_docs, cv_results = await asyncio.gather(
+        load_anchor_docs(db, sac_thue) if (sac_thue and not is_timeline) else _empty_list(),
+        search_hybrid_cv(db, queries, sac_thue=filter_st, top_k=req.top_k)
     )
 
-    # Step 3: RAG answer
-    answer_data = await rag_answer(req.question, cv_results, docs=docs)
+    # Step 3: Nếu không có anchor → fallback vector search docs
+    docs = []
+    if not anchor_docs:
+        docs = await search_multi_query_docs(db, queries, top_k=req.docs_top_k)
+
+    # Step 4: RAG answer
+    answer_data = await rag_answer(
+        req.question, cv_results, docs=docs, anchor_docs=anchor_docs
+    )
 
     return {
         "question":      req.question,
@@ -1048,6 +1060,7 @@ async def ask(req: AskRequest, db: AsyncSession = Depends(get_db)):
         "is_timeline":   answer_data["is_timeline"],
         "intent":        intent,
         "sources_count": len(answer_data["sources"]),
+        "anchor_count":  len(anchor_docs),
         "docs_count":    len(docs),
         "cv_count":      len(cv_results),
         "sources":       answer_data["sources"],

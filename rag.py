@@ -11,18 +11,21 @@ import asyncio
 import unicodedata
 import httpx
 
-CLAUDIBLE_BASE = os.getenv("CLAUDIBLE_BASE_URL", "https://claudible.io/v1")
-CLAUDIBLE_KEY  = os.getenv("CLAUDIBLE_API_KEY", "")
-CLAUDIBLE_MODEL = "claude-haiku-4-5"  # cheapest, fastest
-
-OPENAI_KEY     = os.getenv("OPENAI_API_KEY", "")
-OPENAI_MODEL   = "gpt-4o-mini"
-
-ANTHROPIC_KEY   = os.getenv("ANTHROPIC_API_KEY", "")
-ANTHROPIC_MODEL = "claude-haiku-4-5"
+CLAUDIBLE_BASE  = os.getenv("CLAUDIBLE_BASE_URL", "https://claudible.io/v1")
+CLAUDIBLE_KEY   = os.getenv("CLAUDIBLE_API_KEY", "")
+CLAUDIBLE_MODEL = "claude-haiku-4-5"   # DEFAULT — 200K context, free via Claudible
 
 GEMINI_KEY   = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = "gemini-2.0-flash"   # fast + cheap + good Vietnamese
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")  # fallback 2
+
+OPENAI_KEY   = os.getenv("OPENAI_API_KEY", "")   # fallback 3 (intent only + last resort)
+
+ANTHROPIC_KEY   = os.getenv("ANTHROPIC_API_KEY", "")  # fallback 4
+ANTHROPIC_MODEL = "claude-haiku-4-5"
+
+# Intent analysis model (lightweight, fast)
+INTENT_MODEL_OPENAI  = "gpt-4o-mini"
+INTENT_MODEL_GEMINI  = "gemini-2.0-flash"
 
 SYSTEM_PROMPT = """Bạn là chuyên gia tư vấn thuế Việt Nam. Trả lời câu hỏi dựa HOÀN TOÀN vào các công văn được cung cấp.
 
@@ -58,6 +61,23 @@ def detect_timeline_query(question: str) -> bool:
         r"các thời kỳ|qua các năm|từng giai đoạn",
     ]
     return any(_re.search(p, q) for p in patterns)
+
+
+def strip_html_for_context(html: str, max_chars: int = 0) -> str:
+    """Strip HTML tags, normalize whitespace. Optionally truncate."""
+    if not html:
+        return ""
+    try:
+        from bs4 import BeautifulSoup as _BS
+        text = _BS(html, "html.parser").get_text(separator=" ")
+    except Exception:
+        import re as _re
+        text = _re.sub(r"<[^>]+>", " ", html)
+    import re as _re
+    text = _re.sub(r"\s+", " ", text).strip()
+    if max_chars and len(text) > max_chars:
+        text = text[:max_chars] + "\n\n[... nội dung còn lại đã được rút gọn ...]"
+    return text
 
 
 def build_context_multisource(docs: list, cvs: list,
@@ -189,6 +209,85 @@ def build_context(cv_list: list[dict], max_chars_per_cv: int = 1500) -> str:
 Tiêu đề: {ten}
 Nội dung: {noi_dung}"""
         parts.append(block)
+
+    return "\n\n---\n\n".join(parts)
+
+
+async def load_anchor_docs(db, sac_thue_list: list[str],
+                           max_chars_per_doc: int = 80_000) -> list[dict]:
+    """
+    Load các văn bản anchor (is_anchor=TRUE) cho sắc thuế đã xác định.
+    Strip HTML → truncate → trả về list dict.
+    """
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from sqlalchemy import text
+    if not sac_thue_list:
+        return []
+    try:
+        placeholders = ", ".join(f":{i}" for i in range(len(sac_thue_list)))
+        params = {str(i): st for i, st in enumerate(sac_thue_list)}
+        r = await db.execute(text(f"""
+            SELECT id, so_hieu, ten, loai, ngay_ban_hanh, hieu_luc_tu,
+                   het_hieu_luc_tu, tinh_trang, sac_thue, tvpl_url, link_tvpl,
+                   noi_dung
+            FROM documents
+            WHERE is_anchor = TRUE
+              AND tinh_trang != 'het_hieu_luc'
+              AND sac_thue && ARRAY[{placeholders}]::varchar[]
+            ORDER BY importance ASC, ngay_ban_hanh DESC
+        """), params)
+        rows = [dict(row) for row in r.mappings().all()]
+        for row in rows:
+            raw = row.get("noi_dung") or ""
+            row["noi_dung_text"] = strip_html_for_context(raw, max_chars=max_chars_per_doc)
+            row["source"] = "anchor_doc"
+        return rows
+    except Exception as e:
+        print(f"load_anchor_docs error: {e}")
+        return []
+
+
+def build_context_with_anchors(anchor_docs: list[dict], cv_list: list[dict],
+                                max_chars_cv: int = 1200) -> str:
+    """
+    Build context: anchor docs (full text) TRƯỚC, rồi CV liên quan SAU.
+    """
+    import re as _re
+    from bs4 import BeautifulSoup as _BS
+
+    def strip(html, n):
+        if not html: return ""
+        t = _BS(html, "html.parser").get_text(" ") if "<" in str(html) else str(html)
+        return _re.sub(r"\s+", " ", t).strip()[:n]
+
+    parts = []
+
+    if anchor_docs:
+        parts.append("=== VĂN BẢN PHÁP LUẬT NỀN TẢNG (Hiện hành) ===")
+        parts.append("Đây là các văn bản pháp luật hiện hành quan trọng nhất. "
+                     "Ưu tiên trích dẫn từ các văn bản này.\n")
+        for i, d in enumerate(anchor_docs, 1):
+            hl = f" | Hiệu lực từ: {d.get('hieu_luc_tu')}" if d.get("hieu_luc_tu") else ""
+            noi_dung = d.get("noi_dung_text") or strip(d.get("noi_dung", ""), 80_000)
+            parts.append(
+                f"[VB{i}] {d.get('loai', '')} {d.get('so_hieu', '')} "
+                f"(ban hành: {d.get('ngay_ban_hanh', '')}{hl})\n"
+                f"Tiêu đề: {d.get('ten', '')}\n"
+                f"Tình trạng: {d.get('tinh_trang', '')}\n\n"
+                f"{noi_dung}"
+            )
+
+    if cv_list:
+        parts.append("\n\n=== CÔNG VĂN HƯỚNG DẪN LIÊN QUAN ===")
+        for i, cv in enumerate(cv_list, 1):
+            noi_dung_cv = strip(cv.get("noi_dung_day_du", ""), max_chars_cv)
+            parts.append(
+                f"[CV{i}] {cv.get('so_hieu', '')} "
+                f"(ngày {cv.get('ngay_ban_hanh', '')}, score={float(cv.get('score', 0)):.3f})\n"
+                f"Cơ quan: {cv.get('co_quan', '')}\n"
+                f"Tiêu đề: {cv.get('ten', '')}\n"
+                f"Nội dung: {noi_dung_cv}"
+            )
 
     return "\n\n---\n\n".join(parts)
 
@@ -372,72 +471,68 @@ async def ask_gemini(question: str, context: str, system: str) -> str:
         return r.json()["candidates"][0]["content"]["parts"][0]["text"]
 
 
-async def rag_answer(question: str, cv_list: list[dict], docs: list[dict] = None) -> dict:
+async def rag_answer(question: str, cv_list: list[dict],
+                     docs: list[dict] = None,
+                     anchor_docs: list[dict] = None) -> dict:
     """
-    RAG v4 — intent classification + multi-query + Gemini support.
+    RAG v5 — Haiku default (200K context) + anchor docs + hybrid CV.
 
-    Flow:
-    1. analyze_intent() → sac_thue, search_queries, is_timeline
-    2. Multi-query search đã được thực hiện ở main.py (cv_list + docs đã được merge)
-    3. Build context theo loại query
-    4. Gọi LLM với fallback chain: GPT-4o → Gemini 2.0 Flash → Anthropic → Claudible
+    Priority:
+    - anchor_docs: VB pháp luật hiện hành (full text, luôn load nếu có)
+    - cv_list: CV hướng dẫn liên quan (hybrid search)
+    - docs: VB từ vector search (dự phòng nếu không có anchor)
     """
     docs = docs or []
+    anchor_docs = anchor_docs or []
+    is_timeline = detect_timeline_query(question)
 
-    if not cv_list and not docs:
+    if not cv_list and not docs and not anchor_docs:
         return {
             "answer": "Không tìm thấy văn bản hoặc công văn liên quan trong cơ sở dữ liệu.",
             "model_used": None, "sources": [], "is_timeline": False,
-            "intent": None,
         }
 
-    # Detect timeline (đã có trong intent nhưng cần cho context building)
-    is_timeline = detect_timeline_query(question)
-
     # Build context
-    if is_timeline:
+    if anchor_docs:
+        context = build_context_with_anchors(anchor_docs, cv_list)
+        system = SYSTEM_PROMPT_TIMELINE if is_timeline else SYSTEM_PROMPT
+    elif is_timeline:
         context = build_context_timeline(docs, cv_list)
         system = SYSTEM_PROMPT_TIMELINE
-        user_instruction = (
-            "Trả lời theo từng giai đoạn (cũ → mới), nêu rõ sự thay đổi. "
-            "Kết thúc bằng tóm tắt ngắn."
-        )
     else:
         context = build_context_multisource(docs, cv_list)
         system = SYSTEM_PROMPT
-        user_instruction = "Hãy trả lời dựa vào các tài liệu trên."
 
     user_msg = (
         f"CÁC TÀI LIỆU THAM KHẢO:\n{context}\n\n---\n\n"
-        f"CÂU HỎI: {question}\n\n{user_instruction}"
+        f"CÂU HỎI: {question}\n\n"
+        + ("Trả lời theo từng giai đoạn (cũ → mới), nêu rõ sự thay đổi. Kết thúc bằng tóm tắt."
+           if is_timeline else
+           "Hãy trả lời dựa vào các tài liệu trên. Ưu tiên trích dẫn số hiệu văn bản pháp luật cụ thể.")
     )
 
     answer = None
     model_used = None
 
-    # Tier 1: GPT-4o (best reasoning)
-    if OPENAI_KEY:
+    # Tier 1: Claudible Haiku (DEFAULT — free, 200K context)
+    if CLAUDIBLE_KEY:
         try:
-            async with httpx.AsyncClient(timeout=45) as client:
+            async with httpx.AsyncClient(timeout=60) as client:
                 r = await client.post(
-                    "https://api.openai.com/v1/chat/completions",
-                    headers={"Authorization": f"Bearer {OPENAI_KEY}", "Content-Type": "application/json"},
-                    json={
-                        "model": "gpt-4o",
-                        "max_tokens": 2000,
-                        "messages": [
-                            {"role": "system", "content": system},
-                            {"role": "user", "content": user_msg}
-                        ]
-                    }
+                    f"{CLAUDIBLE_BASE}/messages",
+                    headers={"Authorization": f"Bearer {CLAUDIBLE_KEY}",
+                             "Content-Type": "application/json"},
+                    json={"model": CLAUDIBLE_MODEL, "max_tokens": 4096,
+                          "system": system,
+                          "messages": [{"role": "user", "content": user_msg}]}
                 )
                 r.raise_for_status()
-                answer = r.json()["choices"][0]["message"]["content"]
-                model_used = "openai/gpt-4o"
+                answer = r.json()["content"][0]["text"]
+                model_used = f"claudible/{CLAUDIBLE_MODEL}"
         except Exception as e:
-            print(f"GPT-4o error: {e}")
+            print(f"Claudible Haiku error: {e}")
 
-    # Tier 2: Gemini 2.0 Flash
+    # Tier 2: Gemini 2.0 Flash (1M context, good Vietnamese)
     if answer is None and GEMINI_KEY:
         try:
             answer = await ask_gemini(question, context, system)
@@ -445,56 +540,59 @@ async def rag_answer(question: str, cv_list: list[dict], docs: list[dict] = None
         except Exception as e:
             print(f"Gemini error: {e}")
 
-    # Tier 3: Anthropic Claude Haiku
+    # Tier 3: OpenAI GPT-4o (128K context — trim nếu cần)
+    if answer is None and OPENAI_KEY:
+        try:
+            trimmed_msg = user_msg[:300_000]  # ~75K tokens, safe cho 128K window
+            async with httpx.AsyncClient(timeout=60) as client:
+                r = await client.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {OPENAI_KEY}",
+                             "Content-Type": "application/json"},
+                    json={"model": "gpt-4o", "max_tokens": 4096,
+                          "messages": [{"role": "system", "content": system},
+                                       {"role": "user", "content": trimmed_msg}]}
+                )
+                r.raise_for_status()
+                answer = r.json()["choices"][0]["message"]["content"]
+                model_used = "openai/gpt-4o"
+        except Exception as e:
+            print(f"OpenAI error: {e}")
+
+    # Tier 4: Anthropic Haiku (direct — dùng khi Claudible down)
     if answer is None and ANTHROPIC_KEY:
         try:
             import anthropic as ant
             client = ant.AsyncAnthropic(api_key=ANTHROPIC_KEY)
             msg = await client.messages.create(
-                model=ANTHROPIC_MODEL, max_tokens=2000, system=system,
+                model=ANTHROPIC_MODEL, max_tokens=4096, system=system,
                 messages=[{"role": "user", "content": user_msg}]
             )
             answer = msg.content[0].text
             model_used = f"anthropic/{ANTHROPIC_MODEL}"
         except Exception as e:
             print(f"Anthropic error: {e}")
-
-    # Tier 4: Claudible (free fallback)
-    if answer is None and CLAUDIBLE_KEY:
-        try:
-            async with httpx.AsyncClient(timeout=45) as client:
-                r = await client.post(
-                    f"{CLAUDIBLE_BASE}/messages",
-                    headers={"Authorization": f"Bearer {CLAUDIBLE_KEY}", "Content-Type": "application/json"},
-                    json={
-                        "model": CLAUDIBLE_MODEL, "max_tokens": 2000, "system": system,
-                        "messages": [{"role": "user", "content": user_msg}]
-                    }
-                )
-                r.raise_for_status()
-                answer = r.json()["content"][0]["text"]
-                model_used = f"claudible/{CLAUDIBLE_MODEL}"
-        except Exception as e:
-            print(f"Claudible error: {e}")
             answer = "Lỗi hệ thống: không thể kết nối AI."
             model_used = "error"
 
     # Build sources
     sources = []
-    for d in docs:
+    for d in (anchor_docs + docs):
         sources.append({
             "source_type": "document",
+            "is_anchor": d.get("source") == "anchor_doc",
             "so_hieu": d.get("so_hieu"), "ten": d.get("ten"),
             "loai": d.get("loai"), "ngay_ban_hanh": str(d.get("ngay_ban_hanh") or ""),
             "hieu_luc_tu": str(d.get("hieu_luc_tu") or ""),
             "het_hieu_luc_tu": str(d.get("het_hieu_luc_tu") or ""),
             "tinh_trang": d.get("tinh_trang"),
             "link_nguon": d.get("tvpl_url") or d.get("link_tvpl"),
-            "score": round(float(d.get("score") or 0), 3),
+            "score": round(float(d.get("score") or 1.0), 3),
         })
     for cv in cv_list:
         sources.append({
             "source_type": "cong_van",
+            "is_anchor": False,
             "so_hieu": cv.get("so_hieu"), "ten": cv.get("ten"),
             "loai": "CV", "ngay_ban_hanh": str(cv.get("ngay_ban_hanh") or ""),
             "hieu_luc_tu": "", "het_hieu_luc_tu": "",
@@ -503,9 +601,5 @@ async def rag_answer(question: str, cv_list: list[dict], docs: list[dict] = None
             "score": round(float(cv.get("score") or 0), 3),
         })
 
-    return {
-        "answer": answer,
-        "model_used": model_used,
-        "sources": sources,
-        "is_timeline": is_timeline,
-    }
+    return {"answer": answer, "model_used": model_used,
+            "sources": sources, "is_timeline": is_timeline}

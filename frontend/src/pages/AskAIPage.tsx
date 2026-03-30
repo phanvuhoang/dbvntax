@@ -11,6 +11,7 @@ const EXAMPLE_QUESTIONS = [
 
 interface AskSource {
   source_type: 'document' | 'cong_van';
+  is_anchor: boolean;
   so_hieu: string;
   ten: string;
   ngay_ban_hanh: string;
@@ -37,6 +38,7 @@ interface AskResponse {
   sources_count: number;
   is_timeline: boolean;
   intent: AskIntent | null;
+  anchor_count: number;
   docs_count: number;
   cv_count: number;
   sources: AskSource[];
@@ -183,6 +185,7 @@ export default function AskAIPage() {
                 {renderAnswer(result.answer)}
                 {/* Stats bar */}
                 <p className="text-[10px] text-gray-400 mt-3 border-t border-gray-100 pt-2">
+                  {(result.anchor_count ?? 0) > 0 && <>⭐ {result.anchor_count} VB anchor &bull; </>}
                   📜 {result.docs_count ?? 0} văn bản &bull; 📨 {result.cv_count ?? 0} công văn &bull; 🤖 {result.model_used}
                 </p>
               </div>
@@ -197,13 +200,16 @@ export default function AskAIPage() {
                     href={src.tvpl_url || src.link_nguon || '#'}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-start justify-between gap-3 border border-gray-200 rounded-lg px-3 py-2.5 hover:border-primary hover:bg-primary-light transition group no-underline"
+                    className={`flex items-start justify-between gap-3 border rounded-lg px-3 py-2.5 hover:border-primary hover:bg-primary-light transition group no-underline ${src.is_anchor ? 'border-yellow-300 bg-yellow-50' : 'border-gray-200'}`}
                   >
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-semibold text-primary text-sm group-hover:underline">
                           {src.so_hieu || '—'}
                         </span>
+                        {src.is_anchor && (
+                          <span className="text-xs bg-yellow-100 text-yellow-700 px-1 rounded">⭐ Anchor</span>
+                        )}
                         {src.loai && (
                           <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">
                             {src.loai}
