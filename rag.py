@@ -21,8 +21,11 @@ GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1"  # fallback 2
 
 OPENAI_KEY   = os.getenv("OPENAI_API_KEY", "")   # fallback 3 (intent only + last resort)
 
-ANTHROPIC_KEY   = os.getenv("ANTHROPIC_API_KEY", "")  # fallback 4
-ANTHROPIC_MODEL = "claude-haiku-4-5"
+ANTHROPIC_KEY    = os.getenv("ANTHROPIC_API_KEY", "")
+ANTHROPIC_MODELS = {
+    "anthropic/claude-haiku-4-5":  "claude-haiku-4-5-20251001",
+    "anthropic/claude-sonnet-4-6": "claude-sonnet-4-6",
+}
 
 # Intent analysis model (lightweight, fast)
 INTENT_MODEL_OPENAI  = "gpt-4o-mini"
@@ -474,12 +477,17 @@ async def ask_gemini(question: str, context: str, system: str) -> str:
 
 async def rag_answer(question: str, cv_list: list[dict],
                      docs: list[dict] = None,
-                     anchor_docs: list[dict] = None) -> dict:
+                     anchor_docs: list[dict] = None,
+                     model: str = "anthropic/claude-haiku-4-5") -> dict:
     """
-    RAG v5 — Haiku default (200K context) + anchor docs + hybrid CV.
+    RAG v5 — user-selectable model + anchor docs + hybrid CV.
 
-    Priority:
-    - anchor_docs: VB pháp luật hiện hành (full text, luôn load nếu có)
+    Model options:
+    - anthropic/claude-haiku-4-5   (default, fast)
+    - anthropic/claude-sonnet-4-6  (best quality)
+    - openai/gpt-4o-mini
+    - openai/gpt-4o
+    - google/gemini-2.5-flash
     - cv_list: CV hướng dẫn liên quan (hybrid search)
     - docs: VB từ vector search (dự phòng nếu không có anchor)
     """
@@ -509,72 +517,82 @@ async def rag_answer(question: str, cv_list: list[dict],
         f"CÂU HỎI: {question}\n\n"
         + ("Trả lời theo từng giai đoạn (cũ → mới), nêu rõ sự thay đổi. Kết thúc bằng tóm tắt."
            if is_timeline else
-           "Hãy trả lời dựa vào các tài liệu trên. Ưu tiên trích dẫn số hiệu văn bản pháp luật cụ thể.")
+           "Hãy trả lời dựa vào các tài liệu trên. Ưu tiên trích dẫn số hiệu văn bản pháp luật cụ thể. Trả lời đầy đủ, không cắt giữa chừng.")
     )
 
     answer = None
     model_used = None
 
-    # Tier 1: Gemini 2.0 Flash (DEFAULT — 1M context, good Vietnamese, cheap)
-    if GEMINI_KEY:
-        try:
-            answer = await ask_gemini(question, context, system)
-            model_used = f"google/{GEMINI_MODEL}"
-        except Exception as e:
-            print(f"Gemini error: {e}")
-
-    # Tier 2: Claudible Haiku (free fallback)
-    if answer is None and CLAUDIBLE_KEY:
-        try:
-            async with httpx.AsyncClient(timeout=60) as client:
-                r = await client.post(
-                    f"{CLAUDIBLE_BASE}/messages",
-                    headers={"Authorization": f"Bearer {CLAUDIBLE_KEY}",
-                             "Content-Type": "application/json"},
-                    json={"model": CLAUDIBLE_MODEL, "max_tokens": 4096,
-                          "system": system,
-                          "messages": [{"role": "user", "content": user_msg}]}
-                )
-                r.raise_for_status()
-                answer = r.json()["content"][0]["text"]
-                model_used = f"claudible/{CLAUDIBLE_MODEL}"
-        except Exception as e:
-            print(f"Claudible Haiku error: {e}")
-
-    # Tier 3: OpenAI GPT-4o (128K context — trim nếu cần)
-    if answer is None and OPENAI_KEY:
-        try:
-            trimmed_msg = user_msg[:300_000]  # ~75K tokens, safe cho 128K window
-            async with httpx.AsyncClient(timeout=60) as client:
-                r = await client.post(
-                    "https://api.openai.com/v1/chat/completions",
-                    headers={"Authorization": f"Bearer {OPENAI_KEY}",
-                             "Content-Type": "application/json"},
-                    json={"model": "gpt-4o", "max_tokens": 4096,
-                          "messages": [{"role": "system", "content": system},
-                                       {"role": "user", "content": trimmed_msg}]}
-                )
-                r.raise_for_status()
-                answer = r.json()["choices"][0]["message"]["content"]
-                model_used = "openai/gpt-4o"
-        except Exception as e:
-            print(f"OpenAI error: {e}")
-
-    # Tier 4: Anthropic Haiku (direct — dùng khi Claudible down)
-    if answer is None and ANTHROPIC_KEY:
+    async def _call_anthropic(ant_model: str) -> Optional[str]:
+        if not ANTHROPIC_KEY:
+            return None
         try:
             import anthropic as ant
             client = ant.AsyncAnthropic(api_key=ANTHROPIC_KEY)
             msg = await client.messages.create(
-                model=ANTHROPIC_MODEL, max_tokens=4096, system=system,
+                model=ant_model, max_tokens=8192, system=system,
                 messages=[{"role": "user", "content": user_msg}]
             )
-            answer = msg.content[0].text
-            model_used = f"anthropic/{ANTHROPIC_MODEL}"
+            return msg.content[0].text
         except Exception as e:
-            print(f"Anthropic error: {e}")
-            answer = "Lỗi hệ thống: không thể kết nối AI."
-            model_used = "error"
+            print(f"Anthropic {ant_model} error: {e}")
+            return None
+
+    async def _call_openai(oai_model: str) -> Optional[str]:
+        if not OPENAI_KEY:
+            return None
+        try:
+            async with httpx.AsyncClient(timeout=90) as client:
+                r = await client.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {OPENAI_KEY}", "Content-Type": "application/json"},
+                    json={"model": oai_model, "max_tokens": 8192,
+                          "messages": [{"role": "system", "content": system},
+                                       {"role": "user", "content": user_msg[:300_000]}]}
+                )
+                r.raise_for_status()
+                return r.json()["choices"][0]["message"]["content"]
+        except Exception as e:
+            print(f"OpenAI {oai_model} error: {e}")
+            return None
+
+    async def _call_gemini() -> Optional[str]:
+        if not GEMINI_KEY:
+            return None
+        try:
+            return await ask_gemini(question, context, system)
+        except Exception as e:
+            print(f"Gemini error: {e}")
+            return None
+
+    # ── Dispatch theo model đã chọn ─────────────────────────────────
+    MODEL_MAP = {
+        "anthropic/claude-haiku-4-5":  lambda: _call_anthropic("claude-haiku-4-5-20251001"),
+        "anthropic/claude-sonnet-4-6": lambda: _call_anthropic("claude-sonnet-4-6"),
+        "openai/gpt-4o-mini":          lambda: _call_openai("gpt-4o-mini"),
+        "openai/gpt-4o":               lambda: _call_openai("gpt-4o"),
+        "google/gemini-2.5-flash":     _call_gemini,
+    }
+    DEFAULT_MODEL = "anthropic/claude-haiku-4-5"
+
+    selected = model if model in MODEL_MAP else DEFAULT_MODEL
+    answer = await MODEL_MAP[selected]()
+    model_used = selected
+
+    # Fallback nếu model chính fail
+    if answer is None:
+        print(f"Primary model {selected} failed, trying fallbacks...")
+        for fallback_key, fallback_fn in MODEL_MAP.items():
+            if fallback_key == selected:
+                continue
+            answer = await fallback_fn()
+            if answer:
+                model_used = fallback_key
+                break
+
+    if answer is None:
+        answer = "Lỗi hệ thống: không thể kết nối AI. Vui lòng thử lại."
+        model_used = "error"
 
     # Build sources
     sources = []

@@ -90,6 +90,15 @@ export default function AskAIPage() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<AskResponse | null>(null);
   const [error, setError] = useState('');
+  const [selectedModel, setSelectedModel] = useState('anthropic/claude-haiku-4-5');
+
+  const MODEL_OPTIONS = [
+    { value: 'anthropic/claude-haiku-4-5',  label: '⚡ Claude Haiku 4.5 (mặc định)' },
+    { value: 'anthropic/claude-sonnet-4-6', label: '🧠 Claude Sonnet 4.6 (chất lượng cao)' },
+    { value: 'openai/gpt-4o-mini',          label: '🔹 GPT-4o Mini' },
+    { value: 'openai/gpt-4o',               label: '🔷 GPT-4o' },
+    { value: 'google/gemini-2.5-flash',     label: '✨ Gemini 2.5 Flash' },
+  ];
 
   const ask = async (q: string) => {
     if (!q.trim() || loading) return;
@@ -100,7 +109,7 @@ export default function AskAIPage() {
       const res = await fetch('/api/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: q.trim(), top_k: 15 }),
+        body: JSON.stringify({ question: q.trim(), top_k: 15, model: selectedModel }),
       });
       if (!res.ok) throw new Error(`Lỗi ${res.status}: ${res.statusText}`);
       const data: AskResponse = await res.json();
@@ -292,7 +301,22 @@ export default function AskAIPage() {
 
       {/* Input area */}
       <div className="flex-shrink-0 border-t border-gray-200 bg-white px-4 py-3">
-        <div className="max-w-3xl mx-auto flex gap-2 items-end">
+        <div className="max-w-3xl mx-auto space-y-2">
+          {/* Model selector */}
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-gray-400 whitespace-nowrap">Model AI:</span>
+            <select
+              value={selectedModel}
+              onChange={e => setSelectedModel(e.target.value)}
+              className="text-xs px-2 py-1 border border-gray-200 rounded bg-white text-gray-700 focus:border-primary focus:outline-none"
+            >
+              {MODEL_OPTIONS.map(m => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
+          </div>
+          {/* Question input */}
+          <div className="flex gap-2 items-end">
           <textarea
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
@@ -321,6 +345,7 @@ export default function AskAIPage() {
             )}
             Hỏi
           </button>
+          </div>
         </div>
         <p className="text-[10px] text-gray-400 text-center mt-1">Enter để hỏi · Shift+Enter xuống dòng</p>
       </div>

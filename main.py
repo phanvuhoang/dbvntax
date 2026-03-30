@@ -974,6 +974,7 @@ class AskRequest(BaseModel):
     top_k: int = 15
     docs_top_k: int = 5
     use_intent: bool = True
+    model: str = "anthropic/claude-haiku-4-5"
 
 class DocRelationCreate(BaseModel):
     source_id: int
@@ -1050,7 +1051,8 @@ async def ask(req: AskRequest, db: AsyncSession = Depends(get_db)):
 
     # Step 4: RAG answer
     answer_data = await rag_answer(
-        req.question, cv_results, docs=docs, anchor_docs=anchor_docs
+        req.question, cv_results, docs=docs, anchor_docs=anchor_docs,
+        model=req.model
     )
 
     return {
