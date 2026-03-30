@@ -10,6 +10,7 @@ import json
 import asyncio
 import unicodedata
 import httpx
+from typing import Optional
 
 CLAUDIBLE_BASE  = os.getenv("CLAUDIBLE_BASE_URL", "https://claudible.io/v1")
 CLAUDIBLE_KEY   = os.getenv("CLAUDIBLE_API_KEY", "")
@@ -23,7 +24,7 @@ OPENAI_KEY   = os.getenv("OPENAI_API_KEY", "")   # fallback 3 (intent only + las
 
 ANTHROPIC_KEY    = os.getenv("ANTHROPIC_API_KEY", "")
 ANTHROPIC_MODELS = {
-    "anthropic/claude-haiku-4-5":  "claude-haiku-4-5-20251001",
+    "anthropic/claude-haiku-4-5":  "claude-haiku-4-5",
     "anthropic/claude-sonnet-4-6": "claude-sonnet-4-6",
 }
 
