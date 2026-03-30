@@ -16,7 +16,8 @@ CLAUDIBLE_KEY   = os.getenv("CLAUDIBLE_API_KEY", "")
 CLAUDIBLE_MODEL = "claude-haiku-4-5"   # DEFAULT — 200K context, free via Claudible
 
 GEMINI_KEY   = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")  # fallback 2
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1"  # fallback 2
 
 OPENAI_KEY   = os.getenv("OPENAI_API_KEY", "")   # fallback 3 (intent only + last resort)
 
@@ -323,7 +324,7 @@ Chỉ trả về JSON object, không giải thích."""
         try:
             async with httpx.AsyncClient(timeout=15) as client:
                 r = await client.post(
-                    f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_KEY}",
+                    f"{GEMINI_API_BASE}/models/{GEMINI_MODEL}:generateContent?key={GEMINI_KEY}",
                     json={
                         "contents": [{"parts": [{"text": prompt}]}],
                         "generationConfig": {
@@ -461,7 +462,7 @@ async def ask_gemini(question: str, context: str, system: str) -> str:
     combined = f"{system}\n\n{context}\n\n---\n\nCÂU HỎI: {question}\n\nHãy trả lời dựa vào các tài liệu trên."
     async with httpx.AsyncClient(timeout=45) as client:
         r = await client.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_KEY}",
+            f"{GEMINI_API_BASE}/models/{GEMINI_MODEL}:generateContent?key={GEMINI_KEY}",
             json={
                 "contents": [{"parts": [{"text": combined}]}],
                 "generationConfig": {"maxOutputTokens": 2000}
