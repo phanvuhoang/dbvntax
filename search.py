@@ -288,6 +288,57 @@ async def search_semantic_docs_for_rag(db: AsyncSession, q: str, top_k: int = 5)
         print(f"search_semantic_docs_for_rag error: {e}")
         return []
 
+async def search_multi_query_cv(db: AsyncSession, queries: list[str], sac_thue: str = None,
+                                top_k: int = 15) -> list[dict]:
+    """
+    Multi-query semantic search trên cong_van.
+    Search song song với nhiều queries, merge + dedup theo id, re-rank theo max score.
+    """
+    import asyncio as _asyncio
+
+    async def _search_one(q: str) -> list[dict]:
+        filters = {"sac_thue": sac_thue} if sac_thue else {}
+        rows, _ = await search_semantic_cv(db, q, filters, limit=top_k, offset=0)
+        return rows
+
+    # Search song song tất cả queries
+    all_results_lists = await _asyncio.gather(*[_search_one(q) for q in queries])
+
+    # Merge + dedup: giữ score cao nhất cho mỗi id
+    seen = {}
+    for results in all_results_lists:
+        for row in results:
+            rid = row.get("id")
+            if rid not in seen or float(row.get("score", 0)) > float(seen[rid].get("score", 0)):
+                seen[rid] = row
+
+    # Sort by score desc, lấy top_k
+    merged = sorted(seen.values(), key=lambda x: float(x.get("score", 0)), reverse=True)
+    return merged[:top_k]
+
+
+async def search_multi_query_docs(db: AsyncSession, queries: list[str], top_k: int = 5) -> list[dict]:
+    """
+    Multi-query semantic search trên documents.
+    Search song song, merge + dedup, re-rank.
+    """
+    import asyncio as _asyncio
+
+    all_results_lists = await _asyncio.gather(
+        *[search_semantic_docs_for_rag(db, q, top_k=top_k) for q in queries]
+    )
+
+    seen = {}
+    for results in all_results_lists:
+        for row in results:
+            rid = row.get("id")
+            if rid not in seen or float(row.get("score", 0)) > float(seen[rid].get("score", 0)):
+                seen[rid] = row
+
+    merged = sorted(seen.values(), key=lambda x: float(x.get("score", 0)), reverse=True)
+    return merged[:top_k]
+
+
 async def list_cong_van(db: AsyncSession, q: str, sac_thue: str, nguon: str, limit: int, offset: int, year_from: int = None, year_to: int = None, chu_de: str = None, tinh_trang: str = None, date_from: str = None, date_to: str = None):
     where = ["1=1"]
     params = {}

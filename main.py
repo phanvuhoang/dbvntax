@@ -18,8 +18,14 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db, engine
-from search import do_search, get_doc_by_id, get_cv_by_id, get_article_by_id, list_cong_van, search_semantic_cv, search_semantic_docs_for_rag
-from rag import rag_answer
+from search import (
+    do_search, get_doc_by_id, get_cv_by_id, get_article_by_id,
+    list_cong_van, search_semantic_cv,
+    search_semantic_docs_for_rag,
+    search_multi_query_cv,
+    search_multi_query_docs,
+)
+from rag import rag_answer, analyze_intent
 from ai import stream_quick_analysis, stream_analyze_doc, do_factcheck, do_related
 
 log = logging.getLogger("vntaxdb")
@@ -965,6 +971,7 @@ class AskRequest(BaseModel):
     question: str
     top_k: int = 15
     docs_top_k: int = 5
+    use_intent: bool = True
 
 class DocRelationCreate(BaseModel):
     source_id: int
@@ -1005,21 +1012,41 @@ class MissingDocUpdate(BaseModel):
 
 @app.post("/api/ask")
 async def ask(req: AskRequest, db: AsyncSession = Depends(get_db)):
-    """RAG v2: tìm văn bản pháp luật + công văn → AI trả lời câu hỏi thuế."""
+    """RAG v4: intent classification + multi-query search + Gemini support."""
     if not req.question or len(req.question.strip()) < 5:
         raise HTTPException(400, "Câu hỏi quá ngắn")
 
-    docs, (cv_results, _cv_total) = await asyncio.gather(
-        search_semantic_docs_for_rag(db, req.question, top_k=req.docs_top_k),
-        search_semantic_cv(db, req.question, {}, limit=req.top_k, offset=0)
+    # Step 1: Analyze intent (nếu bật)
+    if req.use_intent:
+        intent = await analyze_intent(req.question)
+    else:
+        intent = {
+            "sac_thue": [],
+            "chu_de": req.question,
+            "search_queries": [req.question],
+            "is_timeline": False,
+        }
+
+    queries = intent.get("search_queries", [req.question])
+    sac_thue = intent.get("sac_thue", [])
+    # Dùng sac_thue đầu tiên để filter (nếu có)
+    filter_sac_thue = sac_thue[0] if sac_thue else None
+
+    # Step 2: Multi-query search song song
+    docs, cv_results = await asyncio.gather(
+        search_multi_query_docs(db, queries, top_k=req.docs_top_k),
+        search_multi_query_cv(db, queries, sac_thue=filter_sac_thue, top_k=req.top_k)
     )
 
+    # Step 3: RAG answer
     answer_data = await rag_answer(req.question, cv_results, docs=docs)
+
     return {
         "question":      req.question,
         "answer":        answer_data["answer"],
         "model_used":    answer_data["model_used"],
         "is_timeline":   answer_data["is_timeline"],
+        "intent":        intent,
         "sources_count": len(answer_data["sources"]),
         "docs_count":    len(docs),
         "cv_count":      len(cv_results),

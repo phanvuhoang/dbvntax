@@ -21,6 +21,9 @@ OPENAI_MODEL   = "gpt-4o-mini"
 ANTHROPIC_KEY   = os.getenv("ANTHROPIC_API_KEY", "")
 ANTHROPIC_MODEL = "claude-haiku-4-5"
 
+GEMINI_KEY   = os.getenv("GEMINI_API_KEY", "")
+GEMINI_MODEL = "gemini-2.0-flash"   # fast + cheap + good Vietnamese
+
 SYSTEM_PROMPT = """Bạn là chuyên gia tư vấn thuế Việt Nam. Trả lời câu hỏi dựa HOÀN TOÀN vào các công văn được cung cấp.
 
 Quy tắc:
@@ -190,6 +193,90 @@ Nội dung: {noi_dung}"""
     return "\n\n---\n\n".join(parts)
 
 
+async def analyze_intent(question: str) -> dict:
+    """
+    Dùng LLM phân tích câu hỏi → intent, sac_thue, search queries.
+    Ưu tiên: OpenAI gpt-4o-mini (nhanh, rẻ) → Gemini Flash → fallback basic
+    """
+    INTENT_PROMPT = """Bạn là chuyên gia phân tích câu hỏi pháp luật thuế Việt Nam.
+
+Phân tích câu hỏi sau và trả về JSON:
+
+Câu hỏi: "{question}"
+
+Trả về JSON object với các fields:
+- "sac_thue": array các loại thuế liên quan (chọn từ: TNDN, GTGT, TNCN, TTDB, FCT, GDLK, QLT, HOA_DON, HKD, XNK, MON_BAI_PHI, TAI_NGUYEN_DAT). Để [] nếu không xác định.
+- "chu_de": string mô tả chủ đề chính của câu hỏi (tiếng Việt, ngắn gọn)
+- "search_queries": array 2-3 cách diễn đạt khác nhau, dùng thuật ngữ pháp lý VN chính xác để tìm kiếm văn bản/công văn liên quan. Mỗi query 8-15 từ.
+- "is_timeline": boolean, true nếu câu hỏi liên quan đến nhiều giai đoạn thời gian khác nhau
+
+Ví dụ:
+Câu hỏi: "chi phí trả cho công ty mẹ có được khấu trừ thuế TNDN không?"
+→ {{"sac_thue": ["TNDN"], "chu_de": "chi phí được trừ - giao dịch liên kết", "search_queries": ["chi phí quản lý phân bổ từ công ty mẹ thuế TNDN được trừ", "chi phí giao dịch liên kết điều kiện được trừ TNDN", "khoản chi phí trả cho bên liên kết nước ngoài hợp lý"], "is_timeline": false}}
+
+Chỉ trả về JSON object, không giải thích."""
+
+    prompt = INTENT_PROMPT.format(question=question)
+    result = None
+
+    # Primary: OpenAI gpt-4o-mini (fast + cheap)
+    if OPENAI_KEY:
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                r = await client.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {OPENAI_KEY}", "Content-Type": "application/json"},
+                    json={
+                        "model": "gpt-4o-mini",
+                        "max_tokens": 400,
+                        "response_format": {"type": "json_object"},
+                        "messages": [{"role": "user", "content": prompt}]
+                    }
+                )
+                r.raise_for_status()
+                result = json.loads(r.json()["choices"][0]["message"]["content"])
+        except Exception as e:
+            print(f"Intent OpenAI error: {e}")
+
+    # Fallback: Gemini Flash
+    if result is None and GEMINI_KEY:
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                r = await client.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_KEY}",
+                    json={
+                        "contents": [{"parts": [{"text": prompt}]}],
+                        "generationConfig": {
+                            "maxOutputTokens": 400,
+                            "responseMimeType": "application/json"
+                        }
+                    }
+                )
+                r.raise_for_status()
+                text_out = r.json()["candidates"][0]["content"]["parts"][0]["text"]
+                result = json.loads(text_out)
+        except Exception as e:
+            print(f"Intent Gemini error: {e}")
+
+    # Fallback: basic (dùng câu hỏi gốc)
+    if result is None:
+        return {
+            "sac_thue": [],
+            "chu_de": question[:100],
+            "search_queries": [question],
+            "is_timeline": detect_timeline_query(question)
+        }
+
+    # Validate + ensure search_queries có ít nhất câu hỏi gốc
+    queries = result.get("search_queries", [])
+    if question not in queries:
+        queries.append(question)
+    result["search_queries"] = queries[:3]  # max 3
+    result.setdefault("sac_thue", [])
+    result.setdefault("is_timeline", detect_timeline_query(question))
+    return result
+
+
 async def ask_claudible(question: str, context: str) -> str:
     """Call Claudible API (Claude Haiku)."""
     headers = {
@@ -270,53 +357,95 @@ async def ask_anthropic(question: str, context: str) -> str:
     )
     return msg.content[0].text
 
-async def rag_answer(question: str, cv_list: list, docs: list = None) -> dict:
-    """RAG v2 — multi-source + timeline-aware."""
+async def ask_gemini(question: str, context: str, system: str) -> str:
+    """Call Gemini 2.0 Flash."""
+    combined = f"{system}\n\n{context}\n\n---\n\nCÂU HỎI: {question}\n\nHãy trả lời dựa vào các tài liệu trên."
+    async with httpx.AsyncClient(timeout=45) as client:
+        r = await client.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_KEY}",
+            json={
+                "contents": [{"parts": [{"text": combined}]}],
+                "generationConfig": {"maxOutputTokens": 2000}
+            }
+        )
+        r.raise_for_status()
+        return r.json()["candidates"][0]["content"]["parts"][0]["text"]
+
+
+async def rag_answer(question: str, cv_list: list[dict], docs: list[dict] = None) -> dict:
+    """
+    RAG v4 — intent classification + multi-query + Gemini support.
+
+    Flow:
+    1. analyze_intent() → sac_thue, search_queries, is_timeline
+    2. Multi-query search đã được thực hiện ở main.py (cv_list + docs đã được merge)
+    3. Build context theo loại query
+    4. Gọi LLM với fallback chain: GPT-4o → Gemini 2.0 Flash → Anthropic → Claudible
+    """
     docs = docs or []
 
     if not cv_list and not docs:
         return {
             "answer": "Không tìm thấy văn bản hoặc công văn liên quan trong cơ sở dữ liệu.",
             "model_used": None, "sources": [], "is_timeline": False,
+            "intent": None,
         }
 
+    # Detect timeline (đã có trong intent nhưng cần cho context building)
     is_timeline = detect_timeline_query(question)
 
+    # Build context
     if is_timeline:
         context = build_context_timeline(docs, cv_list)
         system = SYSTEM_PROMPT_TIMELINE
-        user_msg = (
-            f"CÁC TÀI LIỆU (theo giai đoạn):\n{context}\n\n---\n\n"
-            f"CÂU HỎI: {question}\n\n"
-            "Trả lời theo từng giai đoạn (cũ → mới), nêu rõ sự thay đổi giữa các giai đoạn. "
-            "Kết thúc bằng tóm tắt ngắn gọn."
+        user_instruction = (
+            "Trả lời theo từng giai đoạn (cũ → mới), nêu rõ sự thay đổi. "
+            "Kết thúc bằng tóm tắt ngắn."
         )
     else:
         context = build_context_multisource(docs, cv_list)
         system = SYSTEM_PROMPT
-        user_msg = (
-            f"CÁC TÀI LIỆU THAM KHẢO:\n{context}\n\n---\n\n"
-            f"CÂU HỎI: {question}\n\nHãy trả lời dựa vào các tài liệu trên."
-        )
+        user_instruction = "Hãy trả lời dựa vào các tài liệu trên."
+
+    user_msg = (
+        f"CÁC TÀI LIỆU THAM KHẢO:\n{context}\n\n---\n\n"
+        f"CÂU HỎI: {question}\n\n{user_instruction}"
+    )
 
     answer = None
     model_used = None
 
+    # Tier 1: GPT-4o (best reasoning)
     if OPENAI_KEY:
         try:
             async with httpx.AsyncClient(timeout=45) as client:
                 r = await client.post(
                     "https://api.openai.com/v1/chat/completions",
                     headers={"Authorization": f"Bearer {OPENAI_KEY}", "Content-Type": "application/json"},
-                    json={"model": OPENAI_MODEL, "max_tokens": 2000,
-                          "messages": [{"role": "system", "content": system}, {"role": "user", "content": user_msg}]}
+                    json={
+                        "model": "gpt-4o",
+                        "max_tokens": 2000,
+                        "messages": [
+                            {"role": "system", "content": system},
+                            {"role": "user", "content": user_msg}
+                        ]
+                    }
                 )
                 r.raise_for_status()
                 answer = r.json()["choices"][0]["message"]["content"]
-                model_used = f"openai/{OPENAI_MODEL}"
+                model_used = "openai/gpt-4o"
         except Exception as e:
-            print(f"OpenAI error: {e}")
+            print(f"GPT-4o error: {e}")
 
+    # Tier 2: Gemini 2.0 Flash
+    if answer is None and GEMINI_KEY:
+        try:
+            answer = await ask_gemini(question, context, system)
+            model_used = f"google/{GEMINI_MODEL}"
+        except Exception as e:
+            print(f"Gemini error: {e}")
+
+    # Tier 3: Anthropic Claude Haiku
     if answer is None and ANTHROPIC_KEY:
         try:
             import anthropic as ant
@@ -330,14 +459,17 @@ async def rag_answer(question: str, cv_list: list, docs: list = None) -> dict:
         except Exception as e:
             print(f"Anthropic error: {e}")
 
+    # Tier 4: Claudible (free fallback)
     if answer is None and CLAUDIBLE_KEY:
         try:
             async with httpx.AsyncClient(timeout=45) as client:
                 r = await client.post(
                     f"{CLAUDIBLE_BASE}/messages",
                     headers={"Authorization": f"Bearer {CLAUDIBLE_KEY}", "Content-Type": "application/json"},
-                    json={"model": CLAUDIBLE_MODEL, "max_tokens": 2000, "system": system,
-                          "messages": [{"role": "user", "content": user_msg}]}
+                    json={
+                        "model": CLAUDIBLE_MODEL, "max_tokens": 2000, "system": system,
+                        "messages": [{"role": "user", "content": user_msg}]
+                    }
                 )
                 r.raise_for_status()
                 answer = r.json()["content"][0]["text"]
@@ -347,7 +479,7 @@ async def rag_answer(question: str, cv_list: list, docs: list = None) -> dict:
             answer = "Lỗi hệ thống: không thể kết nối AI."
             model_used = "error"
 
-    # Build sources — documents first, CVs second
+    # Build sources
     sources = []
     for d in docs:
         sources.append({
@@ -371,4 +503,9 @@ async def rag_answer(question: str, cv_list: list, docs: list = None) -> dict:
             "score": round(float(cv.get("score") or 0), 3),
         })
 
-    return {"answer": answer, "model_used": model_used, "sources": sources, "is_timeline": is_timeline}
+    return {
+        "answer": answer,
+        "model_used": model_used,
+        "sources": sources,
+        "is_timeline": is_timeline,
+    }

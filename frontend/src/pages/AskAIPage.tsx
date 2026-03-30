@@ -23,12 +23,20 @@ interface AskSource {
   tinh_trang?: string;
 }
 
+interface AskIntent {
+  sac_thue: string[];
+  chu_de: string;
+  search_queries: string[];
+  is_timeline: boolean;
+}
+
 interface AskResponse {
   question: string;
   answer: string;
   model_used: string;
   sources_count: number;
   is_timeline: boolean;
+  intent: AskIntent | null;
   docs_count: number;
   cv_count: number;
   sources: AskSource[];
@@ -154,6 +162,16 @@ export default function AskAIPage() {
                 <span className="font-semibold text-primary">Câu hỏi: </span>
                 <span className="text-gray-700">{result.question}</span>
               </div>
+
+              {/* Intent chip */}
+              {result.intent?.chu_de && (
+                <p className="text-[11px] text-gray-400">
+                  🎯 Chủ đề: <span className="text-gray-500">{result.intent.chu_de}</span>
+                  {result.intent.sac_thue?.length > 0 && (
+                    <>&nbsp;&bull;&nbsp;Loại thuế: <span className="text-gray-500">{result.intent.sac_thue.join(', ')}</span></>
+                  )}
+                </p>
+              )}
 
               {/* Answer */}
               <div className="bg-white border border-gray-200 rounded-lg p-4">
