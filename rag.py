@@ -500,36 +500,28 @@ async def rag_answer(question: str, cv_list: list[dict],
                      anchor_docs: list[dict] = None,
                      model: str = "anthropic/claude-haiku-4-5") -> dict:
     """
-    RAG v5 — user-selectable model + anchor docs + hybrid CV.
-
-    Model options:
-    - anthropic/claude-haiku-4-5   (default, fast)
-    - anthropic/claude-sonnet-4-6  (best quality)
-    - openai/gpt-4o-mini
-    - openai/gpt-4o
-    - google/gemini-2.5-flash
-    - cv_list: CV hướng dẫn liên quan (hybrid search)
-    - docs: VB từ vector search (dự phòng nếu không có anchor)
+    RAG v5 — user-selectable model + anchor docs only (CV tạm bỏ).
     """
     docs = docs or []
     anchor_docs = anchor_docs or []
     is_timeline = detect_timeline_query(question)
 
-    if not cv_list and not docs and not anchor_docs:
+    # Chỉ dùng anchor docs — bỏ CV khỏi context (chất lượng chưa đủ)
+    if not anchor_docs and not docs:
         return {
-            "answer": "Không tìm thấy văn bản hoặc công văn liên quan trong cơ sở dữ liệu.",
+            "answer": "Không tìm thấy văn bản pháp luật liên quan trong cơ sở dữ liệu. Vui lòng thử câu hỏi khác hoặc chỉ định rõ sắc thuế.",
             "model_used": None, "sources": [], "is_timeline": False,
         }
 
-    # Build context
+    # Build context — chỉ anchor docs + docs vector (không có CV)
     if anchor_docs:
-        context = build_context_with_anchors(anchor_docs, cv_list)
+        context = build_context_with_anchors(anchor_docs, [])   # cv_list=[]
         system = SYSTEM_PROMPT_TIMELINE if is_timeline else SYSTEM_PROMPT
     elif is_timeline:
-        context = build_context_timeline(docs, cv_list)
+        context = build_context_timeline(docs, [])
         system = SYSTEM_PROMPT_TIMELINE
     else:
-        context = build_context_multisource(docs, cv_list)
+        context = build_context_multisource(docs, [])
         system = SYSTEM_PROMPT
 
     user_msg = (
@@ -628,17 +620,7 @@ async def rag_answer(question: str, cv_list: list[dict],
             "link_nguon": d.get("tvpl_url") or d.get("link_tvpl"),
             "score": round(float(d.get("score") or 1.0), 3),
         })
-    for cv in cv_list:
-        sources.append({
-            "source_type": "cong_van",
-            "is_anchor": False,
-            "so_hieu": cv.get("so_hieu"), "ten": cv.get("ten"),
-            "loai": "CV", "ngay_ban_hanh": str(cv.get("ngay_ban_hanh") or ""),
-            "hieu_luc_tu": "", "het_hieu_luc_tu": "",
-            "tinh_trang": cv.get("tinh_trang") or "",
-            "link_nguon": cv.get("link_nguon"),
-            "score": round(float(cv.get("score") or 0), 3),
-        })
+    # CV tạm bỏ khỏi sources (chất lượng chưa đủ)
 
     return {"answer": answer, "model_used": model_used,
             "sources": sources, "is_timeline": is_timeline}

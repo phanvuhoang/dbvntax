@@ -1038,10 +1038,9 @@ async def ask(req: AskRequest, db: AsyncSession = Depends(get_db)):
     filter_st = sac_thue[0] if sac_thue else None
     is_timeline = intent.get("is_timeline", False)
 
-    # Step 2: Load anchor docs + hybrid CV search song song
-    anchor_docs, cv_results = await asyncio.gather(
-        load_anchor_docs(db, sac_thue) if (sac_thue and not is_timeline) else _empty_list(),
-        search_hybrid_cv(db, queries, sac_thue=filter_st, top_k=req.top_k)
+    # Step 2: Load anchor docs (CV tạm bỏ — chất lượng chưa đủ)
+    anchor_docs = await (
+        load_anchor_docs(db, sac_thue) if (sac_thue and not is_timeline) else _empty_list()
     )
 
     # Step 3: Nếu không có anchor → fallback vector search docs
@@ -1051,7 +1050,7 @@ async def ask(req: AskRequest, db: AsyncSession = Depends(get_db)):
 
     # Step 4: RAG answer
     answer_data = await rag_answer(
-        req.question, cv_results, docs=docs, anchor_docs=anchor_docs,
+        req.question, [], docs=docs, anchor_docs=anchor_docs,
         model=req.model
     )
 
@@ -1064,7 +1063,7 @@ async def ask(req: AskRequest, db: AsyncSession = Depends(get_db)):
         "sources_count": len(answer_data["sources"]),
         "anchor_count":  len(anchor_docs),
         "docs_count":    len(docs),
-        "cv_count":      len(cv_results),
+        "cv_count":      0,
         "sources":       answer_data["sources"],
     }
 
