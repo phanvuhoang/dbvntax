@@ -13,10 +13,11 @@ import httpx
 from typing import Optional
 
 # Claudible — Anthropic SDK với base_url override
-# Docs: https://claudible.io/docs/installation
-# Dùng ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN (set trong Coolify env vars)
-CLAUDIBLE_BASE_URL  = os.getenv("ANTHROPIC_BASE_URL", "https://claudible.io")
-CLAUDIBLE_AUTH_TOKEN = os.getenv("ANTHROPIC_AUTH_TOKEN", "")
+# Dùng CLAUDIBLE_BASE_URL (không có /v1 ở cuối) + CLAUDIBLE_API_KEY
+# Fallback: ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN (tên cũ)
+_raw_base = os.getenv("CLAUDIBLE_BASE_URL") or os.getenv("ANTHROPIC_BASE_URL", "https://claudible.io")
+CLAUDIBLE_BASE_URL  = _raw_base.rstrip("/").removesuffix("/v1")  # strip trailing /v1 nếu có
+CLAUDIBLE_AUTH_TOKEN = os.getenv("CLAUDIBLE_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN", "")
 
 # Model names theo Claudible (dấu chấm, không phải gạch ngang)
 CLAUDIBLE_HAIKU  = os.getenv("ANTHROPIC_DEFAULT_HAIKU_MODEL",  "claude-haiku-4.5")
