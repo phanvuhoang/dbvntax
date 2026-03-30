@@ -244,26 +244,38 @@ Nội dung: {noi_dung}"""
 async def load_anchor_docs(db, sac_thue_list: list[str],
                            max_chars_per_doc: int = 80_000) -> list[dict]:
     """
-    Load các văn bản anchor (is_anchor=TRUE) cho sắc thuế đã xác định.
-    Strip HTML → truncate → trả về list dict.
+    Load các văn bản anchor (is_anchor=TRUE) còn hiệu lực.
+    - Nếu có sac_thue: load anchor của các sắc thuế đó (priority), + anchor chung
+    - Nếu nhiều sắc thuế (≥2): load anchor của TẤT CẢ sắc thuế đó
+    - Sắp xếp: theo sac_thue relevance trước, importance ASC, ngay_ban_hanh DESC
     """
-    from sqlalchemy.ext.asyncio import AsyncSession
-    from sqlalchemy import text
-    if not sac_thue_list:
-        return []
+    from sqlalchemy import text as _text
     try:
-        placeholders = ", ".join(f":{i}" for i in range(len(sac_thue_list)))
-        params = {str(i): st for i, st in enumerate(sac_thue_list)}
-        r = await db.execute(text(f"""
-            SELECT id, so_hieu, ten, loai, ngay_ban_hanh, hieu_luc_tu,
-                   het_hieu_luc_tu, tinh_trang, sac_thue, tvpl_url, link_tvpl,
-                   noi_dung
-            FROM documents
-            WHERE is_anchor = TRUE
-              AND tinh_trang != 'het_hieu_luc'
-              AND sac_thue && ARRAY[{placeholders}]::varchar[]
-            ORDER BY importance ASC, ngay_ban_hanh DESC
-        """), params)
+        if sac_thue_list:
+            placeholders = ", ".join(f":{i}" for i in range(len(sac_thue_list)))
+            params = {str(i): st for i, st in enumerate(sac_thue_list)}
+            r = await db.execute(_text(f"""
+                SELECT id, so_hieu, ten, loai, ngay_ban_hanh, hieu_luc_tu,
+                       het_hieu_luc_tu, tinh_trang, sac_thue, tvpl_url, link_tvpl,
+                       noi_dung
+                FROM documents
+                WHERE is_anchor = TRUE
+                  AND tinh_trang != 'het_hieu_luc'
+                  AND sac_thue && ARRAY[{placeholders}]::varchar[]
+                ORDER BY importance ASC, ngay_ban_hanh DESC
+            """), params)
+        else:
+            # Không detect được sắc thuế → load tất cả anchor
+            r = await db.execute(_text("""
+                SELECT id, so_hieu, ten, loai, ngay_ban_hanh, hieu_luc_tu,
+                       het_hieu_luc_tu, tinh_trang, sac_thue, tvpl_url, link_tvpl,
+                       noi_dung
+                FROM documents
+                WHERE is_anchor = TRUE
+                  AND tinh_trang != 'het_hieu_luc'
+                ORDER BY importance ASC, ngay_ban_hanh DESC
+                LIMIT 8
+            """))
         rows = [dict(row) for row in r.mappings().all()]
         for row in rows:
             raw = row.get("noi_dung") or ""
@@ -332,14 +344,18 @@ Phân tích câu hỏi sau và trả về JSON:
 Câu hỏi: "{question}"
 
 Trả về JSON object với các fields:
-- "sac_thue": array các loại thuế liên quan (chọn từ: TNDN, GTGT, TNCN, TTDB, FCT, GDLK, QLT, HOA_DON, HKD, XNK, MON_BAI_PHI, TAI_NGUYEN_DAT). Để [] nếu không xác định.
+- "sac_thue": array TẤT CẢ các loại thuế liên quan trực tiếp HOẶC gián tiếp (chọn từ: TNDN, GTGT, TNCN, TTDB, FCT, GDLK, QLT, HOA_DON, HKD, XNK, MON_BAI_PHI, TAI_NGUYEN_DAT).
+  QUAN TRỌNG: Câu hỏi về "rủi ro", "giao dịch liên kết", "công ty mẹ", "nước ngoài" thường liên quan ĐỒNG THỜI nhiều sắc thuế. Liệt kê đầy đủ, KHÔNG bỏ sót.
 - "chu_de": string mô tả chủ đề chính của câu hỏi (tiếng Việt, ngắn gọn)
 - "search_queries": array 2-3 cách diễn đạt khác nhau, dùng thuật ngữ pháp lý VN chính xác để tìm kiếm văn bản/công văn liên quan. Mỗi query 8-15 từ.
 - "is_timeline": boolean, true nếu câu hỏi liên quan đến nhiều giai đoạn thời gian khác nhau
 
 Ví dụ:
-Câu hỏi: "chi phí trả cho công ty mẹ có được khấu trừ thuế TNDN không?"
-→ {{"sac_thue": ["TNDN"], "chu_de": "chi phí được trừ - giao dịch liên kết", "search_queries": ["chi phí quản lý phân bổ từ công ty mẹ thuế TNDN được trừ", "chi phí giao dịch liên kết điều kiện được trừ TNDN", "khoản chi phí trả cho bên liên kết nước ngoài hợp lý"], "is_timeline": false}}
+Câu hỏi: "chi phí dịch vụ trả cho công ty mẹ nước ngoài có được khấu trừ thuế TNDN không? Có rủi ro gì khác không?"
+→ {{"sac_thue": ["TNDN", "FCT", "GDLK"], "chu_de": "chi phí dịch vụ công ty mẹ - giao dịch liên kết - thuế nhà thầu", "search_queries": ["chi phí dịch vụ trả công ty mẹ nước ngoài điều kiện khấu trừ TNDN", "thuế nhà thầu FCT dịch vụ từ nước ngoài", "giao dịch liên kết chuyển giá điều kiện chi phí được trừ"], "is_timeline": false}}
+
+Câu hỏi: "lãi vay trả công ty mẹ có bị giới hạn không?"
+→ {{"sac_thue": ["TNDN", "FCT", "GDLK"], "chu_de": "lãi vay liên kết - giới hạn 30% EBITDA", "search_queries": ["lãi vay bên liên kết giới hạn khấu trừ 30% EBITDA NĐ 132", "thuế nhà thầu lãi vay trả nước ngoài", "giao dịch liên kết vốn mỏng thin capitalization"], "is_timeline": false}}
 
 Chỉ trả về JSON object, không giải thích."""
 

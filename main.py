@@ -1038,9 +1038,9 @@ async def ask(req: AskRequest, db: AsyncSession = Depends(get_db)):
     filter_st = sac_thue[0] if sac_thue else None
     is_timeline = intent.get("is_timeline", False)
 
-    # Step 2: Load anchor docs (CV tạm bỏ — chất lượng chưa đủ)
+    # Step 2: Load anchor docs theo tất cả sắc thuế detect được (CV tạm bỏ)
     anchor_docs = await (
-        load_anchor_docs(db, sac_thue) if (sac_thue and not is_timeline) else _empty_list()
+        load_anchor_docs(db, sac_thue) if not is_timeline else _empty_list()
     )
 
     # Step 3: Nếu không có anchor → fallback vector search docs
