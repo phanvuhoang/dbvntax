@@ -47,3 +47,43 @@ async def init_db():
                 to_tsvector('simple', unaccent(coalesce(so_hieu,'') || ' ' || ten))
             )
         """))
+        # v3 migrations
+        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS nguoi_ky VARCHAR(100)"))
+        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS ngay_cong_bao DATE"))
+        await conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS so_cong_bao VARCHAR(100)"))
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS doc_relations (
+                id SERIAL PRIMARY KEY,
+                source_id INT REFERENCES documents(id) ON DELETE CASCADE,
+                target_so_hieu VARCHAR(200) NOT NULL,
+                target_id INT REFERENCES documents(id) ON DELETE SET NULL,
+                relation_type VARCHAR(50) NOT NULL,
+                ghi_chu TEXT,
+                verified BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW(),
+                UNIQUE (source_id, target_so_hieu, relation_type)
+            )
+        """))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_rel_source ON doc_relations(source_id)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_rel_target_so_hieu ON doc_relations(target_so_hieu)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_rel_type ON doc_relations(relation_type)"))
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS missing_docs_watchlist (
+                id SERIAL PRIMARY KEY,
+                so_hieu VARCHAR(200) UNIQUE NOT NULL,
+                ten TEXT,
+                loai VARCHAR(20),
+                ngay_ban_hanh DATE,
+                mentioned_in_ids INT[],
+                relation_types TEXT[],
+                priority SMALLINT DEFAULT 3,
+                status VARCHAR(20) DEFAULT 'missing',
+                tvpl_url TEXT,
+                notes TEXT,
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
+            )
+        """))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_missing_status ON missing_docs_watchlist(status)"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_missing_priority ON missing_docs_watchlist(priority)"))

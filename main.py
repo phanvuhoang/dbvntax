@@ -2,7 +2,7 @@
 VNTaxDB — TaxKnowledge Platform
 FastAPI backend + SQLAlchemy async + pgvector
 """
-import os, json, logging
+import os, json, logging, asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Optional, List
@@ -18,7 +18,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db, engine
-from search import do_search, get_doc_by_id, get_cv_by_id, get_article_by_id, list_cong_van, search_semantic_cv
+from search import do_search, get_doc_by_id, get_cv_by_id, get_article_by_id, list_cong_van, search_semantic_cv, search_semantic_docs_for_rag
 from rag import rag_answer
 from ai import stream_quick_analysis, stream_analyze_doc, do_factcheck, do_related
 
@@ -963,27 +963,284 @@ async def spa_root():
 
 class AskRequest(BaseModel):
     question: str
-    top_k: int = 15  # số CV đưa vào LLM
+    top_k: int = 15
+    docs_top_k: int = 5
+
+class DocRelationCreate(BaseModel):
+    source_id: int
+    target_so_hieu: str
+    target_id: Optional[int] = None
+    relation_type: str
+    ghi_chu: Optional[str] = None
+    verified: bool = False
+
+class DocRelationUpdate(BaseModel):
+    target_so_hieu: Optional[str] = None
+    target_id: Optional[int] = None
+    relation_type: Optional[str] = None
+    ghi_chu: Optional[str] = None
+    verified: Optional[bool] = None
+
+class DocumentUpdate(BaseModel):
+    so_hieu: Optional[str] = None
+    ten: Optional[str] = None
+    loai: Optional[str] = None
+    co_quan: Optional[str] = None
+    nguoi_ky: Optional[str] = None
+    ngay_ban_hanh: Optional[str] = None
+    hieu_luc_tu: Optional[str] = None
+    het_hieu_luc_tu: Optional[str] = None
+    ngay_cong_bao: Optional[str] = None
+    so_cong_bao: Optional[str] = None
+    tinh_trang: Optional[str] = None
+    sac_thue: Optional[List[str]] = None
+    tom_tat: Optional[str] = None
+    importance: Optional[int] = None
+
+class MissingDocUpdate(BaseModel):
+    status: Optional[str] = None
+    priority: Optional[int] = None
+    notes: Optional[str] = None
+    tvpl_url: Optional[str] = None
 
 @app.post("/api/ask")
 async def ask(req: AskRequest, db: AsyncSession = Depends(get_db)):
-    """RAG: tìm CV liên quan → Claude/GPT trả lời câu hỏi thuế."""
+    """RAG v2: tìm văn bản pháp luật + công văn → AI trả lời câu hỏi thuế."""
     if not req.question or len(req.question.strip()) < 5:
         raise HTTPException(400, "Câu hỏi quá ngắn")
 
-    # Semantic search top_k CV
-    filters = {}
-    results, total = await search_semantic_cv(db, req.question, filters, limit=req.top_k, offset=0)
+    docs, (cv_results, _cv_total) = await asyncio.gather(
+        search_semantic_docs_for_rag(db, req.question, top_k=req.docs_top_k),
+        search_semantic_cv(db, req.question, {}, limit=req.top_k, offset=0)
+    )
 
-    # RAG
-    answer_data = await rag_answer(req.question, results)
+    answer_data = await rag_answer(req.question, cv_results, docs=docs)
     return {
-        "question": req.question,
-        "answer": answer_data["answer"],
-        "model_used": answer_data["model_used"],
-        "sources_count": len(results),
-        "sources": answer_data["sources"],
+        "question":      req.question,
+        "answer":        answer_data["answer"],
+        "model_used":    answer_data["model_used"],
+        "is_timeline":   answer_data["is_timeline"],
+        "sources_count": len(answer_data["sources"]),
+        "docs_count":    len(docs),
+        "cv_count":      len(cv_results),
+        "sources":       answer_data["sources"],
     }
+
+# ── Doc Relations ─────────────────────────────────────────────────────────────
+
+@app.get("/api/admin/documents/{doc_id}/relations")
+async def get_doc_relations(doc_id: int, db: AsyncSession = Depends(get_db), user=Depends(require_admin)):
+    r = await db.execute(text("""
+        SELECT dr.*, d2.ten as target_ten, d2.loai as target_loai
+        FROM doc_relations dr
+        LEFT JOIN documents d2 ON dr.target_id = d2.id
+        WHERE dr.source_id = :doc_id
+        ORDER BY dr.relation_type, dr.created_at
+    """), {"doc_id": doc_id})
+    return [dict(row) for row in r.mappings().all()]
+
+@app.post("/api/admin/relations")
+async def create_relation(req: DocRelationCreate, db: AsyncSession = Depends(get_db), user=Depends(require_admin)):
+    if not req.target_id and req.target_so_hieu:
+        r = await db.execute(text("SELECT id FROM documents WHERE so_hieu = :sh"), {"sh": req.target_so_hieu})
+        row = r.fetchone()
+        if row:
+            req.target_id = row[0]
+    r = await db.execute(text("""
+        INSERT INTO doc_relations (source_id, target_so_hieu, target_id, relation_type, ghi_chu, verified)
+        VALUES (:source_id, :target_so_hieu, :target_id, :relation_type, :ghi_chu, :verified)
+        ON CONFLICT (source_id, target_so_hieu, relation_type) DO UPDATE
+            SET ghi_chu=EXCLUDED.ghi_chu, verified=EXCLUDED.verified, updated_at=NOW()
+        RETURNING id
+    """), req.model_dump())
+    await db.commit()
+    return {"id": r.scalar(), "status": "created"}
+
+@app.put("/api/admin/relations/{rel_id}")
+async def update_relation(rel_id: int, req: DocRelationUpdate, db: AsyncSession = Depends(get_db), user=Depends(require_admin)):
+    updates = {k: v for k, v in req.model_dump().items() if v is not None}
+    if not updates:
+        raise HTTPException(400, "Không có field nào để update")
+    set_clause = ", ".join(f"{k}=:{k}" for k in updates)
+    updates["rel_id"] = rel_id
+    await db.execute(text(f"UPDATE doc_relations SET {set_clause}, updated_at=NOW() WHERE id=:rel_id"), updates)
+    await db.commit()
+    return {"status": "updated"}
+
+@app.delete("/api/admin/relations/{rel_id}")
+async def delete_relation(rel_id: int, db: AsyncSession = Depends(get_db), user=Depends(require_admin)):
+    await db.execute(text("DELETE FROM doc_relations WHERE id=:id"), {"id": rel_id})
+    await db.commit()
+    return {"status": "deleted"}
+
+# ── Document update ────────────────────────────────────────────────────────────
+
+@app.put("/api/admin/documents/{doc_id}")
+async def update_document(doc_id: int, req: DocumentUpdate, db: AsyncSession = Depends(get_db), user=Depends(require_admin)):
+    updates = {k: v for k, v in req.model_dump().items() if v is not None}
+    if not updates:
+        raise HTTPException(400, "Không có field nào để update")
+    date_fields = {"ngay_ban_hanh", "hieu_luc_tu", "het_hieu_luc_tu", "ngay_cong_bao"}
+    set_parts = []
+    for k in updates:
+        set_parts.append(f"{k}=:{k}::date" if k in date_fields else f"{k}=:{k}")
+    updates["doc_id"] = doc_id
+    await db.execute(text(f"UPDATE documents SET {', '.join(set_parts)}, updated_at=NOW() WHERE id=:doc_id"), updates)
+    await db.commit()
+    return {"status": "updated"}
+
+# ── Extract + Save relations ───────────────────────────────────────────────────
+
+@app.post("/api/admin/documents/{doc_id}/extract-relations")
+async def extract_relations(doc_id: int, db: AsyncSession = Depends(get_db), user=Depends(require_admin)):
+    import openai
+    r = await db.execute(text("SELECT so_hieu, ten, loai, noi_dung, tom_tat FROM documents WHERE id=:id"), {"id": doc_id})
+    doc = r.mappings().first()
+    if not doc:
+        raise HTTPException(404, "Không tìm thấy văn bản")
+    content = (doc["noi_dung"] or doc["tom_tat"] or "")[:6000]
+    prompt = f"""Phân tích văn bản pháp luật Việt Nam sau và extract các quan hệ pháp lý.
+
+Văn bản: {doc["so_hieu"]} — {doc["ten"]}
+Nội dung (trích):
+{content}
+
+Hãy tìm tất cả các văn bản pháp luật khác được đề cập và xác định quan hệ:
+- huong_dan, duoc_huong_dan, sua_doi, bi_sua_doi, thay_the, bi_thay_the, hop_nhat, can_cu, dinh_chinh, lien_quan
+
+Trả về JSON object: {{"relations": [{{"target_so_hieu": "...", "relation_type": "...", "ghi_chu": "..."}}]}}
+Chỉ trả về JSON, không giải thích thêm."""
+    client = openai.AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
+    resp = await client.chat.completions.create(
+        model="gpt-4o-mini", max_tokens=1500,
+        messages=[
+            {"role": "system", "content": "Bạn là chuyên gia pháp lý Việt Nam. Trả về JSON chính xác."},
+            {"role": "user", "content": prompt}
+        ],
+        response_format={"type": "json_object"}
+    )
+    raw = resp.choices[0].message.content
+    try:
+        parsed = json.loads(raw)
+        relations = parsed if isinstance(parsed, list) else parsed.get("relations", [])
+    except Exception:
+        relations = []
+    missing = []
+    for rel in relations:
+        sh = rel.get("target_so_hieu", "")
+        if sh:
+            r2 = await db.execute(text("SELECT id FROM documents WHERE so_hieu = :sh"), {"sh": sh})
+            row = r2.fetchone()
+            rel["target_id"] = row[0] if row else None
+            if not row:
+                r3 = await db.execute(text("SELECT id FROM missing_docs_watchlist WHERE so_hieu = :sh"), {"sh": sh})
+                if not r3.fetchone():
+                    missing.append({"so_hieu": sh, "relation_type": rel.get("relation_type"), "mentioned_in": doc["so_hieu"]})
+    return {"doc_id": doc_id, "so_hieu": doc["so_hieu"], "relations_found": relations, "missing_docs": missing, "count": len(relations)}
+
+@app.post("/api/admin/documents/{doc_id}/save-relations")
+async def save_relations(doc_id: int, body: dict, db: AsyncSession = Depends(get_db), user=Depends(require_admin)):
+    relations = body.get("relations", [])
+    missing_docs = body.get("missing_docs", [])
+    saved = 0
+    for rel in relations:
+        sh = rel.get("target_so_hieu", "")
+        if not sh:
+            continue
+        r2 = await db.execute(text("SELECT id FROM documents WHERE so_hieu=:sh"), {"sh": sh})
+        row = r2.fetchone()
+        target_id = row[0] if row else None
+        await db.execute(text("""
+            INSERT INTO doc_relations (source_id, target_so_hieu, target_id, relation_type, ghi_chu, verified)
+            VALUES (:source_id, :target_so_hieu, :target_id, :relation_type, :ghi_chu, TRUE)
+            ON CONFLICT (source_id, target_so_hieu, relation_type) DO NOTHING
+        """), {"source_id": doc_id, "target_so_hieu": sh, "target_id": target_id,
+               "relation_type": rel.get("relation_type", "lien_quan"), "ghi_chu": rel.get("ghi_chu")})
+        saved += 1
+    added_missing = 0
+    for m in missing_docs:
+        sh = m.get("so_hieu", "")
+        if not sh:
+            continue
+        await db.execute(text("""
+            INSERT INTO missing_docs_watchlist (so_hieu, ten, mentioned_in_ids, relation_types, priority)
+            VALUES (:so_hieu, :ten, ARRAY[:doc_id]::int[], ARRAY[:rel_type], 2)
+            ON CONFLICT (so_hieu) DO UPDATE SET
+                mentioned_in_ids = array_append(missing_docs_watchlist.mentioned_in_ids, :doc_id),
+                updated_at = NOW()
+        """), {"so_hieu": sh, "ten": m.get("ten"), "doc_id": doc_id, "rel_type": m.get("relation_type", "lien_quan")})
+        added_missing += 1
+    await db.commit()
+    return {"saved_relations": saved, "added_to_watchlist": added_missing}
+
+# ── Missing Docs Watchlist ─────────────────────────────────────────────────────
+
+@app.get("/api/admin/missing-docs")
+async def get_missing_docs(
+    status: Optional[str] = Query(None),
+    priority: Optional[int] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    user=Depends(require_admin)
+):
+    where = ["1=1"]
+    params: dict = {}
+    if status:
+        where.append("status = :status")
+        params["status"] = status
+    if priority:
+        where.append("priority = :priority")
+        params["priority"] = priority
+    clause = "WHERE " + " AND ".join(where)
+    r = await db.execute(text(f"SELECT * FROM missing_docs_watchlist {clause} ORDER BY priority ASC, created_at DESC"), params)
+    return [dict(row) for row in r.mappings().all()]
+
+@app.put("/api/admin/missing-docs/{item_id}")
+async def update_missing_doc(item_id: int, req: MissingDocUpdate, db: AsyncSession = Depends(get_db), user=Depends(require_admin)):
+    updates = {k: v for k, v in req.model_dump().items() if v is not None}
+    if not updates:
+        raise HTTPException(400, "Không có field nào")
+    set_clause = ", ".join(f"{k}=:{k}" for k in updates)
+    updates["item_id"] = item_id
+    await db.execute(text(f"UPDATE missing_docs_watchlist SET {set_clause}, updated_at=NOW() WHERE id=:item_id"), updates)
+    await db.commit()
+    return {"status": "updated"}
+
+# ── Documents list for admin ───────────────────────────────────────────────────
+
+@app.get("/api/admin/documents-list")
+async def admin_documents_list(
+    q: Optional[str] = None,
+    loai: Optional[str] = None,
+    sac_thue: Optional[str] = None,
+    limit: int = Query(50, le=200),
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(require_admin)
+):
+    where = ["1=1"]
+    params: dict = {"limit": limit, "offset": offset}
+    if q:
+        where.append("(so_hieu ILIKE :q OR ten ILIKE :q)")
+        params["q"] = f"%{q}%"
+    if loai:
+        where.append("loai = :loai")
+        params["loai"] = loai
+    if sac_thue:
+        where.append(":sac_thue = ANY(sac_thue)")
+        params["sac_thue"] = sac_thue
+    clause = "WHERE " + " AND ".join(where)
+    r = await db.execute(text(f"""
+        SELECT id, so_hieu, ten, loai, co_quan, nguoi_ky, ngay_ban_hanh,
+               hieu_luc_tu, het_hieu_luc_tu, tinh_trang, sac_thue,
+               importance, ngay_cong_bao, so_cong_bao, tom_tat
+        FROM documents {clause}
+        ORDER BY ngay_ban_hanh DESC NULLS LAST
+        LIMIT :limit OFFSET :offset
+    """), params)
+    rows = [dict(row) for row in r.mappings().all()]
+    r2 = await db.execute(text(f"SELECT COUNT(*) FROM documents {clause}"), params)
+    total = r2.scalar()
+    return {"items": rows, "total": total}
 
 @app.get("/{full_path:path}")
 async def spa_fallback(full_path: str):

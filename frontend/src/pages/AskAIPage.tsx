@@ -9,12 +9,18 @@ const EXAMPLE_QUESTIONS = [
   'Transfer pricing — hồ sơ xác định giá giao dịch liên kết cần gì?',
 ];
 
-interface Source {
+interface AskSource {
+  source_type: 'document' | 'cong_van';
   so_hieu: string;
   ten: string;
   ngay_ban_hanh: string;
-  link_nguon: string;
+  link_nguon?: string;
+  tvpl_url?: string;
   score: number;
+  loai?: string;
+  hieu_luc_tu?: string;
+  het_hieu_luc_tu?: string;
+  tinh_trang?: string;
 }
 
 interface AskResponse {
@@ -22,7 +28,10 @@ interface AskResponse {
   answer: string;
   model_used: string;
   sources_count: number;
-  sources: Source[];
+  is_timeline: boolean;
+  docs_count: number;
+  cv_count: number;
+  sources: AskSource[];
 }
 
 function renderAnswer(text: string) {
@@ -148,60 +157,103 @@ export default function AskAIPage() {
 
               {/* Answer */}
               <div className="bg-white border border-gray-200 rounded-lg p-4">
-                {renderAnswer(result.answer)}
-                {result.model_used && (
-                  <p className="text-[10px] text-gray-400 mt-3 border-t border-gray-100 pt-2">
-                    Mô hình: {result.model_used}
-                  </p>
+                {result.is_timeline && (
+                  <div className="inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-1 mb-3">
+                    ⏱️ Câu hỏi đa giai đoạn
+                  </div>
                 )}
+                {renderAnswer(result.answer)}
+                {/* Stats bar */}
+                <p className="text-[10px] text-gray-400 mt-3 border-t border-gray-100 pt-2">
+                  📜 {result.docs_count ?? 0} văn bản &bull; 📨 {result.cv_count ?? 0} công văn &bull; 🤖 {result.model_used}
+                </p>
               </div>
 
-              {/* Sources */}
-              {(result.sources?.length ?? 0) > 0 && (
-                <div>
-                  <p className="text-[11px] text-gray-400 font-semibold uppercase tracking-wider mb-2">
-                    Nguồn tham khảo ({result.sources_count ?? result.sources.length})
-                  </p>
-                  <div className="space-y-2">
-                    {result.sources.map((src, i) => (
-                      <a
-                        key={i}
-                        href={src.link_nguon || '#'}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-start justify-between gap-3 border border-gray-200 rounded-lg px-3 py-2.5 hover:border-primary hover:bg-primary-light transition group no-underline"
-                      >
-                        <div className="min-w-0">
-                          <span className="font-semibold text-primary text-sm group-hover:underline">
-                            {src.so_hieu || '—'}
+              {/* Sources — grouped */}
+              {(result.sources?.length ?? 0) > 0 && (() => {
+                const docSources = result.sources.filter(s => s.source_type === 'document');
+                const cvSources = result.sources.filter(s => s.source_type === 'cong_van');
+                const renderSource = (src: AskSource, i: number) => (
+                  <a
+                    key={i}
+                    href={src.tvpl_url || src.link_nguon || '#'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-start justify-between gap-3 border border-gray-200 rounded-lg px-3 py-2.5 hover:border-primary hover:bg-primary-light transition group no-underline"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-primary text-sm group-hover:underline">
+                          {src.so_hieu || '—'}
+                        </span>
+                        {src.loai && (
+                          <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">
+                            {src.loai}
                           </span>
-                          <p className="text-xs text-gray-600 mt-0.5 line-clamp-2 leading-snug">
-                            {src.ten}
-                          </p>
-                        </div>
-                        <div className="flex flex-col items-end gap-1 shrink-0">
-                          {src.ngay_ban_hanh && (
-                            <span className="text-[10px] text-gray-400 whitespace-nowrap">
-                              {formatDate(src.ngay_ban_hanh)}
-                            </span>
-                          )}
-                          {src.score > 0 && (
-                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                              src.score >= 0.7
-                                ? 'bg-green-100 text-green-700'
-                                : src.score >= 0.5
-                                  ? 'bg-yellow-100 text-yellow-700'
-                                  : 'bg-gray-100 text-gray-500'
-                            }`}>
-                              {Math.round(src.score * 100)}%
-                            </span>
-                          )}
-                        </div>
-                      </a>
-                    ))}
+                        )}
+                        {src.tinh_trang && (
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                            src.tinh_trang.toLowerCase().includes('còn') || src.tinh_trang.toLowerCase().includes('hiệu lực')
+                              ? 'bg-green-100 text-green-700'
+                              : src.tinh_trang.toLowerCase().includes('hết')
+                                ? 'bg-red-100 text-red-600'
+                                : 'bg-gray-100 text-gray-500'
+                          }`}>
+                            {src.tinh_trang}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-600 mt-0.5 line-clamp-2 leading-snug">
+                        {src.ten}
+                      </p>
+                      {(src.hieu_luc_tu || src.het_hieu_luc_tu) && (
+                        <p className="text-[10px] text-gray-400 mt-0.5">
+                          {src.hieu_luc_tu && <>Từ {formatDate(src.hieu_luc_tu)}</>}
+                          {src.het_hieu_luc_tu && <> — Đến {formatDate(src.het_hieu_luc_tu)}</>}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      {src.ngay_ban_hanh && (
+                        <span className="text-[10px] text-gray-400 whitespace-nowrap">
+                          {formatDate(src.ngay_ban_hanh)}
+                        </span>
+                      )}
+                      {src.score > 0 && (
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                          src.score >= 0.7
+                            ? 'bg-green-100 text-green-700'
+                            : src.score >= 0.5
+                              ? 'bg-yellow-100 text-yellow-700'
+                              : 'bg-gray-100 text-gray-500'
+                        }`}>
+                          {Math.round(src.score * 100)}%
+                        </span>
+                      )}
+                    </div>
+                  </a>
+                );
+                return (
+                  <div className="space-y-3">
+                    {docSources.length > 0 && (
+                      <div>
+                        <p className="text-[11px] text-gray-400 font-semibold uppercase tracking-wider mb-2">
+                          📜 Văn bản pháp luật ({docSources.length})
+                        </p>
+                        <div className="space-y-2">{docSources.map(renderSource)}</div>
+                      </div>
+                    )}
+                    {cvSources.length > 0 && (
+                      <div>
+                        <p className="text-[11px] text-gray-400 font-semibold uppercase tracking-wider mb-2">
+                          📨 Công văn hướng dẫn ({cvSources.length})
+                        </p>
+                        <div className="space-y-2">{cvSources.map(renderSource)}</div>
+                      </div>
+                    )}
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               <button
                 onClick={() => { setResult(null); setQuestion(''); }}

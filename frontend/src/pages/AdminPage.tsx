@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth, authHeaders } from '../auth';
 
-type AdminTab = 'corpus' | 'tvpl';
+type AdminTab = 'corpus' | 'tvpl' | 'documents' | 'watchlist';
 
 interface CorpusItem {
   github_path: string;
@@ -31,6 +31,28 @@ interface TVPLPreview {
 
 const LOAI_OPTIONS = ['ND', 'TT', 'Luat', 'VBHN', 'QD', 'NQ', 'CV', 'Khac'];
 const SAC_THUE_OPTIONS = ['TNDN', 'GTGT', 'TNCN', 'TTDB', 'FCT', 'GDLK', 'QLT', 'HOA_DON', 'HKD', 'XNK'];
+const TINH_TRANG_OPTIONS = ['con_hieu_luc', 'het_hieu_luc', 'chua_hieu_luc'];
+const IMPORTANCE_OPTIONS = [{ v: 1, l: 'Rất quan trọng' }, { v: 2, l: 'Quan trọng' }, { v: 3, l: 'Bình thường' }];
+const RELATION_TYPES = ['huong_dan','duoc_huong_dan','sua_doi','bi_sua_doi','thay_the','bi_thay_the','hop_nhat','can_cu','dinh_chinh','lien_quan'];
+
+interface AdminDoc {
+  id: number; so_hieu: string; ten: string; loai: string;
+  co_quan: string | null; nguoi_ky: string | null;
+  ngay_ban_hanh: string | null; hieu_luc_tu: string | null;
+  het_hieu_luc_tu: string | null; tinh_trang: string | null;
+  sac_thue: string[]; importance: number | null;
+  ngay_cong_bao: string | null; so_cong_bao: string | null; tom_tat: string | null;
+}
+interface DocRelation {
+  id: number; source_id: number; target_so_hieu: string; target_id: number | null;
+  target_ten: string | null; target_loai: string | null;
+  relation_type: string; ghi_chu: string | null; verified: boolean;
+}
+interface MissingDoc {
+  id: number; so_hieu: string; ten: string | null; loai: string | null;
+  mentioned_in_ids: number[] | null; relation_types: string[] | null;
+  priority: number; status: string; tvpl_url: string | null; notes: string | null;
+}
 
 export default function AdminPage() {
   const { user, token, isLoggedIn } = useAuth();
@@ -46,6 +68,32 @@ export default function AdminPage() {
   const [corpusImporting, setCorpusImporting] = useState(false);
   const [corpusResults, setCorpusResults] = useState<ImportResult[]>([]);
   const [corpusError, setCorpusError] = useState('');
+
+  // Documents tab state
+  const [docQuery, setDocQuery] = useState('');
+  const [docLoai, setDocLoai] = useState('');
+  const [docSacThue, setDocSacThue] = useState('');
+  const [docItems, setDocItems] = useState<AdminDoc[]>([]);
+  const [docTotal, setDocTotal] = useState(0);
+  const [docLoading, setDocLoading] = useState(false);
+  const [docOffset, setDocOffset] = useState(0);
+  const [editDoc, setEditDoc] = useState<AdminDoc | null>(null);
+  const [editForm, setEditForm] = useState<Partial<AdminDoc>>({});
+  const [editSaving, setEditSaving] = useState(false);
+  const [relationsDoc, setRelationsDoc] = useState<AdminDoc | null>(null);
+  const [relations, setRelations] = useState<DocRelation[]>([]);
+  const [relLoading, setRelLoading] = useState(false);
+  const [extractLoading, setExtractLoading] = useState(false);
+  const [extractResult, setExtractResult] = useState<{ relations_found: DocRelation[]; missing_docs: { so_hieu: string; relation_type: string }[] } | null>(null);
+  const [extractChecked, setExtractChecked] = useState<Set<number>>(new Set());
+  const [newRelForm, setNewRelForm] = useState({ target_so_hieu: '', relation_type: 'lien_quan', ghi_chu: '' });
+  const [addingRel, setAddingRel] = useState(false);
+
+  // Watchlist tab state
+  const [wlItems, setWlItems] = useState<MissingDoc[]>([]);
+  const [wlLoading, setWlLoading] = useState(false);
+  const [wlStatus, setWlStatus] = useState('missing');
+  const [wlPriority, setWlPriority] = useState('');
 
   // TVPL tab state
   const [tvplUrl, setTvplUrl] = useState('');
@@ -159,6 +207,90 @@ export default function AdminPage() {
     return `${s.slice(6)}/${s.slice(4, 6)}/${s.slice(0, 4)}`;
   };
 
+  const loadDocs = (offset = 0) => {
+    setDocLoading(true);
+    const p = new URLSearchParams({ limit: '50', offset: String(offset) });
+    if (docQuery) p.set('q', docQuery);
+    if (docLoai) p.set('loai', docLoai);
+    if (docSacThue) p.set('sac_thue', docSacThue);
+    fetch(`/api/admin/documents-list?${p}`, { headers: authHeaders(token) })
+      .then(r => r.json()).then(d => { setDocItems(d.items || []); setDocTotal(d.total || 0); setDocOffset(offset); })
+      .catch(() => {}).finally(() => setDocLoading(false));
+  };
+
+  const saveEditDoc = () => {
+    if (!editDoc) return;
+    setEditSaving(true);
+    fetch(`/api/admin/documents/${editDoc.id}`, {
+      method: 'PUT', headers: authHeaders(token),
+      body: JSON.stringify(editForm),
+    }).then(r => r.json()).then(() => {
+      setEditDoc(null); loadDocs(docOffset);
+    }).catch(() => {}).finally(() => setEditSaving(false));
+  };
+
+  const loadRelations = (doc: AdminDoc) => {
+    setRelationsDoc(doc); setRelations([]); setExtractResult(null);
+    setRelLoading(true);
+    fetch(`/api/admin/documents/${doc.id}/relations`, { headers: authHeaders(token) })
+      .then(r => r.json()).then(setRelations).catch(() => {}).finally(() => setRelLoading(false));
+  };
+
+  const deleteRelation = (relId: number) => {
+    if (!window.confirm('Xóa quan hệ này?')) return;
+    fetch(`/api/admin/relations/${relId}`, { method: 'DELETE', headers: authHeaders(token) })
+      .then(() => relationsDoc && loadRelations(relationsDoc));
+  };
+
+  const addRelation = () => {
+    if (!relationsDoc || !newRelForm.target_so_hieu) return;
+    setAddingRel(true);
+    fetch('/api/admin/relations', {
+      method: 'POST', headers: authHeaders(token),
+      body: JSON.stringify({ source_id: relationsDoc.id, ...newRelForm }),
+    }).then(r => r.json()).then(() => {
+      setNewRelForm({ target_so_hieu: '', relation_type: 'lien_quan', ghi_chu: '' });
+      loadRelations(relationsDoc!);
+    }).catch(() => {}).finally(() => setAddingRel(false));
+  };
+
+  const extractRelations = () => {
+    if (!relationsDoc) return;
+    setExtractLoading(true); setExtractResult(null);
+    fetch(`/api/admin/documents/${relationsDoc.id}/extract-relations`, { method: 'POST', headers: authHeaders(token) })
+      .then(r => r.json()).then(d => {
+        setExtractResult(d);
+        setExtractChecked(new Set(d.relations_found.map((_: unknown, i: number) => i)));
+      }).catch(() => {}).finally(() => setExtractLoading(false));
+  };
+
+  const saveExtractedRelations = () => {
+    if (!relationsDoc || !extractResult) return;
+    const rels = extractResult.relations_found.filter((_, i) => extractChecked.has(i));
+    fetch(`/api/admin/documents/${relationsDoc.id}/save-relations`, {
+      method: 'POST', headers: authHeaders(token),
+      body: JSON.stringify({ relations: rels, missing_docs: extractResult.missing_docs }),
+    }).then(r => r.json()).then(() => {
+      setExtractResult(null); loadRelations(relationsDoc!);
+    }).catch(() => {});
+  };
+
+  const loadWatchlist = () => {
+    setWlLoading(true);
+    const p = new URLSearchParams();
+    if (wlStatus) p.set('status', wlStatus);
+    if (wlPriority) p.set('priority', wlPriority);
+    fetch(`/api/admin/missing-docs?${p}`, { headers: authHeaders(token) })
+      .then(r => r.json()).then(setWlItems).catch(() => {}).finally(() => setWlLoading(false));
+  };
+
+  const updateMissingDoc = (id: number, updates: object) => {
+    fetch(`/api/admin/missing-docs/${id}`, {
+      method: 'PUT', headers: authHeaders(token),
+      body: JSON.stringify(updates),
+    }).then(() => loadWatchlist()).catch(() => {});
+  };
+
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
@@ -168,18 +300,27 @@ export default function AdminPage() {
       </header>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200 bg-white flex-shrink-0 px-4 flex gap-1 pt-2">
-        {(['corpus', 'tvpl'] as AdminTab[]).map(t => (
+      <div className="border-b border-gray-200 bg-white flex-shrink-0 px-4 flex gap-1 pt-2 flex-wrap">
+        {([
+          ['corpus', '📦 Từ Corpus'],
+          ['tvpl', '🌐 Từ TVPL'],
+          ['documents', '📋 Văn bản'],
+          ['watchlist', '🔍 VB Thiếu'],
+        ] as [AdminTab, string][]).map(([t, label]) => (
           <button
             key={t}
-            onClick={() => setActiveTab(t)}
+            onClick={() => {
+              setActiveTab(t);
+              if (t === 'documents' && docItems.length === 0) loadDocs(0);
+              if (t === 'watchlist' && wlItems.length === 0) loadWatchlist();
+            }}
             className={`px-4 py-1.5 text-sm font-medium rounded-t transition ${
               activeTab === t
                 ? 'text-primary border-b-2 border-primary bg-primary-light'
                 : 'text-gray-500 hover:text-primary hover:bg-primary-light'
             }`}
           >
-            {t === 'corpus' ? '📦 Từ Corpus' : '🌐 Từ TVPL'}
+            {label}
           </button>
         ))}
       </div>
@@ -420,6 +561,395 @@ export default function AdminPage() {
                 ) : (
                   <p>❌ Lỗi: {tvplResult.msg}</p>
                 )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── DOCUMENTS TAB ── */}
+        {activeTab === 'documents' && (
+          <div className="space-y-4">
+            {/* Filter bar */}
+            <div className="bg-white rounded-lg border border-gray-200 p-3 flex flex-wrap gap-2 items-end">
+              <input
+                type="text"
+                placeholder="Tìm số hiệu / tên..."
+                value={docQuery}
+                onChange={e => setDocQuery(e.target.value)}
+                className="px-2 py-1.5 border border-gray-300 rounded text-sm focus:border-primary focus:outline-none"
+              />
+              <select value={docLoai} onChange={e => setDocLoai(e.target.value)}
+                className="px-2 py-1.5 border border-gray-300 rounded text-sm focus:border-primary focus:outline-none bg-white">
+                <option value="">Loại</option>
+                {LOAI_OPTIONS.map(l => <option key={l} value={l}>{l}</option>)}
+              </select>
+              <select value={docSacThue} onChange={e => setDocSacThue(e.target.value)}
+                className="px-2 py-1.5 border border-gray-300 rounded text-sm focus:border-primary focus:outline-none bg-white">
+                <option value="">Sắc thuế</option>
+                {SAC_THUE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+              <button onClick={() => loadDocs(0)} disabled={docLoading}
+                className="px-3 py-1.5 bg-primary text-white text-sm rounded hover:bg-primary-dark disabled:opacity-50 transition">
+                {docLoading ? 'Đang tải...' : '🔍 Tìm'}
+              </button>
+              <span className="text-xs text-gray-400 ml-auto">{docTotal} văn bản</span>
+            </div>
+
+            {/* Table */}
+            {docItems.length > 0 && (
+              <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 border-b border-gray-200">
+                      <tr>
+                        <th className="px-3 py-2 text-left font-medium text-gray-600">Số hiệu</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-600">Tên văn bản</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-600">Loại</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-600">Ngày</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-600">Tình trạng</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-600">Thao tác</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {docItems.map(doc => (
+                        <tr key={doc.id} className="border-b border-gray-100 hover:bg-gray-50">
+                          <td className="px-3 py-2 font-medium text-primary whitespace-nowrap">{doc.so_hieu}</td>
+                          <td className="px-3 py-2 text-gray-700 max-w-xs">
+                            <p className="truncate" title={doc.ten}>{doc.ten}</p>
+                          </td>
+                          <td className="px-3 py-2 text-gray-500">{doc.loai}</td>
+                          <td className="px-3 py-2 text-gray-400 whitespace-nowrap">{doc.ngay_ban_hanh?.slice(0, 10) || ''}</td>
+                          <td className="px-3 py-2">
+                            <span className={`text-[11px] px-1.5 py-0.5 rounded font-medium ${
+                              doc.tinh_trang === 'con_hieu_luc' ? 'bg-green-100 text-green-700' :
+                              doc.tinh_trang === 'het_hieu_luc' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-500'
+                            }`}>{doc.tinh_trang || '—'}</span>
+                          </td>
+                          <td className="px-3 py-2">
+                            <div className="flex gap-1">
+                              <button onClick={() => { setEditDoc(doc); setEditForm({ ...doc }); }}
+                                className="px-2 py-1 text-xs border border-gray-200 rounded hover:border-primary hover:text-primary transition">
+                                ✏️ Sửa
+                              </button>
+                              <button onClick={() => loadRelations(doc)}
+                                className="px-2 py-1 text-xs border border-gray-200 rounded hover:border-primary hover:text-primary transition">
+                                🔗 QH
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="flex items-center gap-3 px-3 py-2 border-t border-gray-100 bg-gray-50">
+                  <button disabled={docOffset === 0} onClick={() => loadDocs(Math.max(0, docOffset - 50))}
+                    className="px-3 py-1 text-xs border border-gray-200 rounded disabled:opacity-40">← Trước</button>
+                  <span className="text-xs text-gray-500">{docOffset + 1}–{Math.min(docOffset + 50, docTotal)} / {docTotal}</span>
+                  <button disabled={docOffset + 50 >= docTotal} onClick={() => loadDocs(docOffset + 50)}
+                    className="px-3 py-1 text-xs border border-gray-200 rounded disabled:opacity-40">Sau →</button>
+                </div>
+              </div>
+            )}
+
+            {/* Edit Modal */}
+            {editDoc && (
+              <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+                <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+                  <div className="px-5 py-3 border-b border-gray-200 flex items-center justify-between">
+                    <h3 className="font-semibold text-gray-800">Sửa văn bản: {editDoc.so_hieu}</h3>
+                    <button onClick={() => setEditDoc(null)} className="text-gray-400 hover:text-gray-600 text-lg">✕</button>
+                  </div>
+                  <div className="p-5 space-y-3">
+                    {([
+                      ['so_hieu', 'Số hiệu', 'text'],
+                      ['co_quan', 'Cơ quan', 'text'],
+                      ['nguoi_ky', 'Người ký', 'text'],
+                      ['ngay_ban_hanh', 'Ngày ban hành', 'date'],
+                      ['hieu_luc_tu', 'Hiệu lực từ', 'date'],
+                      ['het_hieu_luc_tu', 'Hết hiệu lực từ', 'date'],
+                      ['ngay_cong_bao', 'Ngày công báo', 'date'],
+                      ['so_cong_bao', 'Số công báo', 'text'],
+                    ] as [string, string, string][]).map(([k, label, type]) => (
+                      <div key={k} className="flex gap-3 items-start">
+                        <label className="text-xs text-gray-500 w-32 shrink-0 pt-1.5">{label}</label>
+                        <input type={type} value={(editForm as Record<string, string>)[k] || ''}
+                          onChange={e => setEditForm(f => ({ ...f, [k]: e.target.value }))}
+                          className="flex-1 px-2 py-1.5 border border-gray-300 rounded text-sm focus:border-primary focus:outline-none" />
+                      </div>
+                    ))}
+                    <div className="flex gap-3 items-start">
+                      <label className="text-xs text-gray-500 w-32 shrink-0 pt-1.5">Tên văn bản</label>
+                      <textarea value={editForm.ten || ''}
+                        onChange={e => setEditForm(f => ({ ...f, ten: e.target.value }))}
+                        rows={3}
+                        className="flex-1 px-2 py-1.5 border border-gray-300 rounded text-sm focus:border-primary focus:outline-none resize-y" />
+                    </div>
+                    <div className="flex gap-3 items-start">
+                      <label className="text-xs text-gray-500 w-32 shrink-0 pt-1.5">Loại VB</label>
+                      <select value={editForm.loai || ''}
+                        onChange={e => setEditForm(f => ({ ...f, loai: e.target.value }))}
+                        className="px-2 py-1.5 border border-gray-300 rounded text-sm bg-white focus:border-primary focus:outline-none">
+                        {LOAI_OPTIONS.map(l => <option key={l} value={l}>{l}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex gap-3 items-start">
+                      <label className="text-xs text-gray-500 w-32 shrink-0 pt-1.5">Tình trạng</label>
+                      <select value={editForm.tinh_trang || ''}
+                        onChange={e => setEditForm(f => ({ ...f, tinh_trang: e.target.value }))}
+                        className="px-2 py-1.5 border border-gray-300 rounded text-sm bg-white focus:border-primary focus:outline-none">
+                        {TINH_TRANG_OPTIONS.map(t => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex gap-3 items-start">
+                      <label className="text-xs text-gray-500 w-32 shrink-0 pt-1.5">Sắc thuế</label>
+                      <div className="flex flex-wrap gap-1">
+                        {SAC_THUE_OPTIONS.map(s => (
+                          <label key={s} className="flex items-center gap-1 text-xs cursor-pointer">
+                            <input type="checkbox"
+                              checked={(editForm.sac_thue || []).includes(s)}
+                              onChange={e => setEditForm(f => ({
+                                ...f,
+                                sac_thue: e.target.checked
+                                  ? [...(f.sac_thue || []), s]
+                                  : (f.sac_thue || []).filter(x => x !== s)
+                              }))}
+                              className="accent-primary" />
+                            {s}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="flex gap-3 items-start">
+                      <label className="text-xs text-gray-500 w-32 shrink-0 pt-1.5">Độ quan trọng</label>
+                      <select value={editForm.importance || 3}
+                        onChange={e => setEditForm(f => ({ ...f, importance: parseInt(e.target.value) }))}
+                        className="px-2 py-1.5 border border-gray-300 rounded text-sm bg-white focus:border-primary focus:outline-none">
+                        {IMPORTANCE_OPTIONS.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex gap-3 items-start">
+                      <label className="text-xs text-gray-500 w-32 shrink-0 pt-1.5">Tóm tắt</label>
+                      <textarea value={editForm.tom_tat || ''}
+                        onChange={e => setEditForm(f => ({ ...f, tom_tat: e.target.value }))}
+                        rows={3}
+                        className="flex-1 px-2 py-1.5 border border-gray-300 rounded text-sm focus:border-primary focus:outline-none resize-y" />
+                    </div>
+                  </div>
+                  <div className="px-5 pb-4 flex gap-2 justify-end">
+                    <button onClick={() => setEditDoc(null)}
+                      className="px-4 py-1.5 border border-gray-300 text-sm rounded text-gray-600 hover:bg-gray-50 transition">
+                      Hủy
+                    </button>
+                    <button onClick={saveEditDoc} disabled={editSaving}
+                      className="px-4 py-1.5 bg-primary text-white text-sm rounded hover:bg-primary-dark disabled:opacity-50 transition">
+                      {editSaving ? 'Đang lưu...' : '✅ Lưu'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Relations Panel */}
+            {relationsDoc && (
+              <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-end p-4">
+                <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl h-[90vh] flex flex-col">
+                  <div className="px-5 py-3 border-b border-gray-200 flex items-center justify-between flex-shrink-0">
+                    <h3 className="font-semibold text-gray-800">🔗 Quan hệ: {relationsDoc.so_hieu}</h3>
+                    <button onClick={() => { setRelationsDoc(null); setExtractResult(null); }} className="text-gray-400 hover:text-gray-600">✕</button>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-5 space-y-4">
+                    {/* Add new relation */}
+                    <div className="bg-gray-50 rounded-lg p-3 space-y-2">
+                      <p className="text-xs font-semibold text-gray-600 uppercase tracking-wider">+ Thêm quan hệ</p>
+                      <div className="flex gap-2 flex-wrap">
+                        <input type="text" placeholder="Số hiệu VB liên quan"
+                          value={newRelForm.target_so_hieu}
+                          onChange={e => setNewRelForm(f => ({ ...f, target_so_hieu: e.target.value }))}
+                          className="flex-1 min-w-[160px] px-2 py-1.5 border border-gray-300 rounded text-sm focus:border-primary focus:outline-none" />
+                        <select value={newRelForm.relation_type}
+                          onChange={e => setNewRelForm(f => ({ ...f, relation_type: e.target.value }))}
+                          className="px-2 py-1.5 border border-gray-300 rounded text-sm bg-white focus:border-primary focus:outline-none">
+                          {RELATION_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                        <input type="text" placeholder="Ghi chú (tùy chọn)"
+                          value={newRelForm.ghi_chu}
+                          onChange={e => setNewRelForm(f => ({ ...f, ghi_chu: e.target.value }))}
+                          className="flex-1 min-w-[120px] px-2 py-1.5 border border-gray-300 rounded text-sm focus:border-primary focus:outline-none" />
+                        <button onClick={addRelation} disabled={addingRel || !newRelForm.target_so_hieu}
+                          className="px-3 py-1.5 bg-primary text-white text-sm rounded hover:bg-primary-dark disabled:opacity-50 transition">
+                          + Thêm
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Existing relations */}
+                    {relLoading ? <p className="text-sm text-gray-400">Đang tải...</p> : (
+                      <div>
+                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Quan hệ hiện có ({relations.length})</p>
+                        {relations.length === 0 ? (
+                          <p className="text-xs text-gray-400 italic">Chưa có quan hệ nào</p>
+                        ) : (
+                          <table className="w-full text-xs">
+                            <thead><tr className="bg-gray-50">
+                              <th className="px-2 py-1 text-left text-gray-500">Loại</th>
+                              <th className="px-2 py-1 text-left text-gray-500">Văn bản</th>
+                              <th className="px-2 py-1 text-left text-gray-500">Ghi chú</th>
+                              <th className="px-2 py-1 text-gray-500">✓</th>
+                              <th className="px-2 py-1"></th>
+                            </tr></thead>
+                            <tbody>
+                              {relations.map(rel => (
+                                <tr key={rel.id} className="border-b border-gray-100">
+                                  <td className="px-2 py-1">
+                                    <span className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded text-[10px]">{rel.relation_type}</span>
+                                  </td>
+                                  <td className="px-2 py-1">
+                                    <span className="font-medium text-primary">{rel.target_so_hieu}</span>
+                                    {rel.target_ten && <span className="text-gray-400 ml-1 truncate max-w-[120px] inline-block">{rel.target_ten}</span>}
+                                  </td>
+                                  <td className="px-2 py-1 text-gray-400">{rel.ghi_chu || '—'}</td>
+                                  <td className="px-2 py-1 text-center">{rel.verified ? '✅' : '⬜'}</td>
+                                  <td className="px-2 py-1">
+                                    <button onClick={() => deleteRelation(rel.id)} className="text-red-400 hover:text-red-600">✕</button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
+                      </div>
+                    )}
+
+                    {/* AI Extract */}
+                    <div className="border-t border-gray-200 pt-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-xs font-semibold text-gray-600 uppercase tracking-wider">🤖 Trích xuất bằng AI</p>
+                        <button onClick={extractRelations} disabled={extractLoading}
+                          className="px-3 py-1 text-xs bg-primary text-white rounded hover:bg-primary-dark disabled:opacity-50 transition">
+                          {extractLoading ? 'Đang phân tích...' : 'Extract từ AI'}
+                        </button>
+                      </div>
+                      {extractResult && (
+                        <div className="space-y-2">
+                          <p className="text-xs text-gray-500">{extractResult.relations_found.length} quan hệ tìm thấy · {extractResult.missing_docs.length} VB thiếu</p>
+                          <div className="space-y-1 max-h-48 overflow-y-auto">
+                            {extractResult.relations_found.map((rel, i) => (
+                              <label key={i} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-gray-50 px-2 py-1 rounded">
+                                <input type="checkbox" checked={extractChecked.has(i)}
+                                  onChange={e => setExtractChecked(prev => {
+                                    const n = new Set(prev); e.target.checked ? n.add(i) : n.delete(i); return n;
+                                  })} className="accent-primary" />
+                                <span className="bg-blue-100 text-blue-700 px-1 py-0.5 rounded text-[10px]">{rel.relation_type}</span>
+                                <span className="font-medium text-primary">{rel.target_so_hieu}</span>
+                                {!rel.target_id && <span className="text-red-400 text-[10px]">❌ Thiếu</span>}
+                                {rel.ghi_chu && <span className="text-gray-400">{rel.ghi_chu}</span>}
+                              </label>
+                            ))}
+                          </div>
+                          <button onClick={saveExtractedRelations} disabled={extractChecked.size === 0}
+                            className="w-full py-1.5 bg-primary text-white text-xs rounded hover:bg-primary-dark disabled:opacity-50 transition">
+                            ✅ Lưu {extractChecked.size} quan hệ đã chọn
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── WATCHLIST TAB ── */}
+        {activeTab === 'watchlist' && (
+          <div className="space-y-4">
+            <div className="bg-white rounded-lg border border-gray-200 p-3 flex flex-wrap gap-2 items-end">
+              <select value={wlStatus} onChange={e => setWlStatus(e.target.value)}
+                className="px-2 py-1.5 border border-gray-300 rounded text-sm bg-white focus:border-primary focus:outline-none">
+                <option value="">Tất cả trạng thái</option>
+                <option value="missing">Còn thiếu</option>
+                <option value="imported">Đã nhập</option>
+                <option value="ignored">Bỏ qua</option>
+              </select>
+              <select value={wlPriority} onChange={e => setWlPriority(e.target.value)}
+                className="px-2 py-1.5 border border-gray-300 rounded text-sm bg-white focus:border-primary focus:outline-none">
+                <option value="">Tất cả ưu tiên</option>
+                <option value="1">🔴 Cao</option>
+                <option value="2">🟡 Trung bình</option>
+                <option value="3">⚪ Thấp</option>
+              </select>
+              <button onClick={loadWatchlist} disabled={wlLoading}
+                className="px-3 py-1.5 bg-primary text-white text-sm rounded hover:bg-primary-dark disabled:opacity-50 transition">
+                {wlLoading ? 'Đang tải...' : '🔍 Lọc'}
+              </button>
+              <span className="text-xs text-gray-400 ml-auto">{wlItems.length} mục</span>
+            </div>
+
+            {wlItems.length > 0 && (
+              <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 border-b border-gray-200">
+                      <tr>
+                        <th className="px-3 py-2 text-left font-medium text-gray-600">Số hiệu</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-600">Được đề cập trong</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-600">Loại QH</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-600">Ưu tiên</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-600">Trạng thái</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-600">Thao tác</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {wlItems.map(item => (
+                        <tr key={item.id} className="border-b border-gray-100 hover:bg-gray-50">
+                          <td className="px-3 py-2 font-medium text-primary">{item.so_hieu}</td>
+                          <td className="px-3 py-2 text-xs text-gray-500">
+                            {(item.mentioned_in_ids || []).length} văn bản
+                          </td>
+                          <td className="px-3 py-2 text-xs text-gray-400">
+                            {(item.relation_types || []).join(', ')}
+                          </td>
+                          <td className="px-3 py-2">
+                            <span className={`text-xs font-medium ${
+                              item.priority === 1 ? 'text-red-600' : item.priority === 2 ? 'text-yellow-600' : 'text-gray-400'
+                            }`}>
+                              {item.priority === 1 ? '🔴 Cao' : item.priority === 2 ? '🟡 TB' : '⚪ Thấp'}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2">
+                            <span className={`text-[11px] px-1.5 py-0.5 rounded ${
+                              item.status === 'imported' ? 'bg-green-100 text-green-700' :
+                              item.status === 'ignored' ? 'bg-gray-100 text-gray-500' : 'bg-yellow-100 text-yellow-700'
+                            }`}>{item.status}</span>
+                          </td>
+                          <td className="px-3 py-2">
+                            <div className="flex gap-1">
+                              {item.status !== 'imported' && (
+                                <button onClick={() => updateMissingDoc(item.id, { status: 'imported' })}
+                                  className="px-2 py-0.5 text-xs bg-green-100 text-green-700 rounded hover:bg-green-200 transition">
+                                  Đã có
+                                </button>
+                              )}
+                              {item.status !== 'ignored' && (
+                                <button onClick={() => updateMissingDoc(item.id, { status: 'ignored' })}
+                                  className="px-2 py-0.5 text-xs bg-gray-100 text-gray-500 rounded hover:bg-gray-200 transition">
+                                  Bỏ qua
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {wlItems.length === 0 && !wlLoading && (
+              <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-sm text-gray-400">
+                Không có văn bản nào trong danh sách theo dõi
               </div>
             )}
           </div>

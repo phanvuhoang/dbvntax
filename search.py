@@ -263,6 +263,31 @@ async def get_article_by_id(db: AsyncSession, art_id: int):
     row = r.mappings().first()
     return dict(row) if row else None
 
+async def search_semantic_docs_for_rag(db: AsyncSession, q: str, top_k: int = 5) -> list:
+    """Semantic search on documents table for RAG. Returns top_k docs with content."""
+    emb = await embed_text(q)
+    if not emb:
+        return []
+    try:
+        r = await db.execute(text("""
+            SELECT id, so_hieu, ten, loai, co_quan,
+                   ngay_ban_hanh, hieu_luc_tu, het_hieu_luc_tu,
+                   tinh_trang, sac_thue, tvpl_url,
+                   LEFT(COALESCE(noi_dung, tom_tat, ''), 2000) as noi_dung,
+                   1-(embedding <=> CAST(:emb AS vector)) AS score
+            FROM documents
+            WHERE embedding IS NOT NULL
+            ORDER BY embedding <=> CAST(:emb AS vector)
+            LIMIT :top_k
+        """), {"emb": str(emb), "top_k": top_k})
+        rows = [dict(row) for row in r.mappings().all()]
+        for row in rows:
+            row["source"] = "document"
+        return rows
+    except Exception as e:
+        print(f"search_semantic_docs_for_rag error: {e}")
+        return []
+
 async def list_cong_van(db: AsyncSession, q: str, sac_thue: str, nguon: str, limit: int, offset: int, year_from: int = None, year_to: int = None, chu_de: str = None, tinh_trang: str = None, date_from: str = None, date_to: str = None):
     where = ["1=1"]
     params = {}
