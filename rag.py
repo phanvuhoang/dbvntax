@@ -318,27 +318,8 @@ Chỉ trả về JSON object, không giải thích."""
     prompt = INTENT_PROMPT.format(question=question)
     result = None
 
-    # Primary: OpenAI gpt-4o-mini (fast + cheap)
-    if OPENAI_KEY:
-        try:
-            async with httpx.AsyncClient(timeout=15) as client:
-                r = await client.post(
-                    "https://api.openai.com/v1/chat/completions",
-                    headers={"Authorization": f"Bearer {OPENAI_KEY}", "Content-Type": "application/json"},
-                    json={
-                        "model": "gpt-4o-mini",
-                        "max_tokens": 400,
-                        "response_format": {"type": "json_object"},
-                        "messages": [{"role": "user", "content": prompt}]
-                    }
-                )
-                r.raise_for_status()
-                result = json.loads(r.json()["choices"][0]["message"]["content"])
-        except Exception as e:
-            print(f"Intent OpenAI error: {e}")
-
-    # Fallback: Gemini Flash
-    if result is None and GEMINI_KEY:
+    # Primary: Gemini Flash (fast + cheap + no OpenAI dependency)
+    if GEMINI_KEY:
         try:
             async with httpx.AsyncClient(timeout=15) as client:
                 r = await client.post(
@@ -356,6 +337,25 @@ Chỉ trả về JSON object, không giải thích."""
                 result = json.loads(text_out)
         except Exception as e:
             print(f"Intent Gemini error: {e}")
+
+    # Fallback: OpenAI gpt-4o-mini
+    if result is None and OPENAI_KEY:
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                r = await client.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {OPENAI_KEY}", "Content-Type": "application/json"},
+                    json={
+                        "model": "gpt-4o-mini",
+                        "max_tokens": 400,
+                        "response_format": {"type": "json_object"},
+                        "messages": [{"role": "user", "content": prompt}]
+                    }
+                )
+                r.raise_for_status()
+                result = json.loads(r.json()["choices"][0]["message"]["content"])
+        except Exception as e:
+            print(f"Intent OpenAI error: {e}")
 
     # Fallback: basic (dùng câu hỏi gốc)
     if result is None:
@@ -514,8 +514,16 @@ async def rag_answer(question: str, cv_list: list[dict],
     answer = None
     model_used = None
 
-    # Tier 1: Claudible Haiku (DEFAULT — free, 200K context)
-    if CLAUDIBLE_KEY:
+    # Tier 1: Gemini 2.0 Flash (DEFAULT — 1M context, good Vietnamese, cheap)
+    if GEMINI_KEY:
+        try:
+            answer = await ask_gemini(question, context, system)
+            model_used = f"google/{GEMINI_MODEL}"
+        except Exception as e:
+            print(f"Gemini error: {e}")
+
+    # Tier 2: Claudible Haiku (free fallback)
+    if answer is None and CLAUDIBLE_KEY:
         try:
             async with httpx.AsyncClient(timeout=60) as client:
                 r = await client.post(
@@ -531,14 +539,6 @@ async def rag_answer(question: str, cv_list: list[dict],
                 model_used = f"claudible/{CLAUDIBLE_MODEL}"
         except Exception as e:
             print(f"Claudible Haiku error: {e}")
-
-    # Tier 2: Gemini 2.0 Flash (1M context, good Vietnamese)
-    if answer is None and GEMINI_KEY:
-        try:
-            answer = await ask_gemini(question, context, system)
-            model_used = f"google/{GEMINI_MODEL}"
-        except Exception as e:
-            print(f"Gemini error: {e}")
 
     # Tier 3: OpenAI GPT-4o (128K context — trim nếu cần)
     if answer is None and OPENAI_KEY:
