@@ -244,28 +244,47 @@ Nội dung: {noi_dung}"""
 async def load_anchor_docs(db, sac_thue_list: list[str],
                            max_chars_per_doc: int = 80_000) -> list[dict]:
     """
-    Load các văn bản anchor (is_anchor=TRUE) còn hiệu lực.
-    - Nếu có sac_thue: load anchor của các sắc thuế đó (priority), + anchor chung
-    - Nếu nhiều sắc thuế (≥2): load anchor của TẤT CẢ sắc thuế đó
-    - Sắp xếp: theo sac_thue relevance trước, importance ASC, ngay_ban_hanh DESC
+    Load anchor docs theo thứ tự ưu tiên sắc thuế.
+
+    Strategy:
+    - Sắc thuế đầu tiên trong list = sắc thuế CHÍNH → load tối đa 3 docs
+    - Các sắc thuế phụ → mỗi sắc tối đa 1-2 docs
+    - Sort cuối: sắc thuế chính trước, rồi importance ASC, ngay_ban_hanh DESC
+    - Giới hạn tổng: 8 docs để không làm loãng context
     """
     from sqlalchemy import text as _text
-    try:
-        if sac_thue_list:
-            placeholders = ", ".join(f":{i}" for i in range(len(sac_thue_list)))
-            params = {str(i): st for i, st in enumerate(sac_thue_list)}
-            r = await db.execute(_text(f"""
+
+    if not sac_thue_list:
+        # Không detect được → load top anchor chung
+        try:
+            r = await db.execute(_text("""
                 SELECT id, so_hieu, ten, loai, ngay_ban_hanh, hieu_luc_tu,
                        het_hieu_luc_tu, tinh_trang, sac_thue, tvpl_url, link_tvpl,
                        noi_dung
                 FROM documents
-                WHERE is_anchor = TRUE
-                  AND tinh_trang != 'het_hieu_luc'
-                  AND sac_thue && ARRAY[{placeholders}]::varchar[]
+                WHERE is_anchor = TRUE AND tinh_trang != 'het_hieu_luc'
                 ORDER BY importance ASC, ngay_ban_hanh DESC
-            """), params)
-        else:
-            # Không detect được sắc thuế → load tất cả anchor
+                LIMIT 5
+            """))
+            rows = [dict(row) for row in r.mappings().all()]
+            for row in rows:
+                row["noi_dung_text"] = strip_html_for_context(row.get("noi_dung") or "", max_chars=max_chars_per_doc)
+                row["source"] = "anchor_doc"
+            return rows
+        except Exception as e:
+            print(f"load_anchor_docs error: {e}")
+            return []
+
+    try:
+        all_rows = []
+        seen_ids = set()
+
+        # Sắc thuế chính (index 0) → tối đa 3 docs
+        # Sắc thuế phụ (index 1+) → tối đa 2 docs mỗi sắc
+        limits = [3] + [2] * (len(sac_thue_list) - 1)
+
+        for idx, st in enumerate(sac_thue_list):
+            lim = limits[idx]
             r = await db.execute(_text("""
                 SELECT id, so_hieu, ten, loai, ngay_ban_hanh, hieu_luc_tu,
                        het_hieu_luc_tu, tinh_trang, sac_thue, tvpl_url, link_tvpl,
@@ -273,16 +292,30 @@ async def load_anchor_docs(db, sac_thue_list: list[str],
                 FROM documents
                 WHERE is_anchor = TRUE
                   AND tinh_trang != 'het_hieu_luc'
+                  AND sac_thue && ARRAY[:st]::varchar[]
                 ORDER BY importance ASC, ngay_ban_hanh DESC
-                LIMIT 8
-            """))
-        rows = [dict(row) for row in r.mappings().all()]
-        for row in rows:
-            raw = row.get("noi_dung") or ""
-            row["noi_dung_text"] = strip_html_for_context(raw, max_chars=max_chars_per_doc)
+                LIMIT :lim
+            """), {"st": st, "lim": lim})
+            for row in r.mappings().all():
+                d = dict(row)
+                if d["id"] not in seen_ids:
+                    seen_ids.add(d["id"])
+                    d["_priority"] = idx  # 0 = sắc thuế chính
+                    all_rows.append(d)
+
+        # Sort: sắc thuế chính trước (priority 0), rồi importance, rồi ngay_ban_hanh
+        all_rows.sort(key=lambda x: (x.get("_priority", 99), x.get("importance", 9), str(x.get("ngay_ban_hanh") or "")), reverse=False)
+
+        # Strip HTML
+        for row in all_rows:
+            row["noi_dung_text"] = strip_html_for_context(row.get("noi_dung") or "", max_chars=max_chars_per_doc)
             row["source"] = "anchor_doc"
-        return rows
+
+        return all_rows[:8]  # tổng tối đa 8
+
     except Exception as e:
+        print(f"load_anchor_docs error: {e}")
+        return []
         print(f"load_anchor_docs error: {e}")
         return []
 
