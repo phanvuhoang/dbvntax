@@ -220,6 +220,16 @@ export default function AdminPage() {
       .catch(() => {}).finally(() => setDocLoading(false));
   };
 
+  const toggleAnchor = (doc: AdminDoc) => {
+    const newVal = !doc.is_anchor;
+    fetch(`/api/admin/documents/${doc.id}`, {
+      method: 'PUT', headers: authHeaders(token),
+      body: JSON.stringify({ is_anchor: newVal }),
+    }).then(() => {
+      setDocItems(items => items.map(d => d.id === doc.id ? { ...d, is_anchor: newVal } : d));
+    }).catch(() => {});
+  };
+
   const saveEditDoc = () => {
     if (!editDoc) return;
     setEditSaving(true);
@@ -615,17 +625,15 @@ export default function AdminPage() {
                         <th className="px-3 py-2 text-left font-medium text-gray-600">Loại</th>
                         <th className="px-3 py-2 text-left font-medium text-gray-600">Ngày</th>
                         <th className="px-3 py-2 text-left font-medium text-gray-600">Tình trạng</th>
+                        <th className="px-3 py-2 text-center font-medium text-gray-600">⭐</th>
                         <th className="px-3 py-2 text-left font-medium text-gray-600">Thao tác</th>
                       </tr>
                     </thead>
                     <tbody>
                       {docItems.map(doc => (
-                        <tr key={doc.id} className="border-b border-gray-100 hover:bg-gray-50">
+                        <tr key={doc.id} className={`border-b border-gray-100 hover:bg-gray-50 ${doc.is_anchor ? 'bg-yellow-50' : ''}`}>
                           <td className="px-3 py-2 font-medium text-primary whitespace-nowrap">
                             {doc.so_hieu}
-                            {doc.is_anchor && (
-                              <span className="ml-1 px-1 py-0.5 bg-yellow-100 text-yellow-700 text-xs rounded">⭐ Anchor</span>
-                            )}
                           </td>
                           <td className="px-3 py-2 text-gray-700 max-w-xs">
                             <p className="truncate" title={doc.ten}>{doc.ten}</p>
@@ -637,6 +645,15 @@ export default function AdminPage() {
                               doc.tinh_trang === 'con_hieu_luc' ? 'bg-green-100 text-green-700' :
                               doc.tinh_trang === 'het_hieu_luc' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-500'
                             }`}>{doc.tinh_trang || '—'}</span>
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            <input
+                              type="checkbox"
+                              checked={doc.is_anchor || false}
+                              onChange={() => toggleAnchor(doc)}
+                              title="Đánh dấu Anchor — RAG luôn load full text VB này"
+                              className="w-4 h-4 accent-yellow-500 cursor-pointer"
+                            />
                           </td>
                           <td className="px-3 py-2">
                             <div className="flex gap-1">
