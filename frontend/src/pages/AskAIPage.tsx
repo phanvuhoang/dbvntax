@@ -117,8 +117,10 @@ export default function AskAIPage() {
 
   const MODEL_OPTIONS = [
     { value: 'claudible/claude-haiku-4.5',  label: '⚡ claudible/claude-haiku-4.5 (nhanh, rẻ)' },
+    { value: 'claudible/claude-sonnet-4.6', label: '🎯 Claude Sonnet 4.6 Claudible (chất lượng cao)' },
+    { value: 'deepseek/deepseek-reasoner',  label: '🧠 DeepSeek Reasoner V3.2 (thinking mode)' },
     { value: 'google/gemini-2.0-flash',     label: '✨ Gemini-2.5-Flash (nhanh, chi tiết)' },
-    { value: 'anthropic/claude-sonnet-4-6', label: '💎 Claude Sonnet 4.6 Anthropic (lâu, chính xác, tốn kém)' },
+    { value: 'anthropic/claude-sonnet-4-6', label: '💎 Claude Sonnet 4.6 Anthropic (tốn kém)' },
     { value: 'openai/gpt-4o-mini',          label: '🔹 GPT-4o Mini (nhanh, rẻ)' },
     { value: 'openai/gpt-4o',               label: '🔷 GPT-4o (chậm, đắt)' },
   ];

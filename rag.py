@@ -28,7 +28,8 @@ GEMINI_KEY   = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"  # v1 deprecated, dùng v1beta
 
-OPENAI_KEY   = os.getenv("OPENAI_API_KEY", "")   # fallback 3 (intent only + last resort)
+OPENAI_KEY    = os.getenv("OPENAI_API_KEY", "")   # fallback 3 (intent only + last resort)
+DEEPSEEK_KEY  = os.getenv("DEEPSEEK_API_KEY", "")  # DeepSeek Reasoner (V3.2 thinking mode)
 
 ANTHROPIC_KEY    = os.getenv("ANTHROPIC_API_KEY", "")  # fallback nếu Claudible down
 
@@ -816,6 +817,39 @@ async def rag_answer(question: str, cv_list: list[dict],
             print(f"OpenAI {oai_model} error: {e}")
             return None
 
+    async def _call_deepseek(ds_model: str) -> Optional[str]:
+        """Gọi DeepSeek API — OpenAI-compatible format.
+        deepseek-reasoner = DeepSeek-V3.2 thinking mode (có reasoning_content).
+        """
+        if not DEEPSEEK_KEY:
+            print("DeepSeek: DEEPSEEK_API_KEY not set")
+            return None
+        try:
+            async with httpx.AsyncClient(timeout=300) as client:
+                r = await client.post(
+                    "https://api.deepseek.com/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {DEEPSEEK_KEY}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": ds_model,
+                        "max_tokens": 8000,
+                        "messages": [
+                            {"role": "system", "content": system},
+                            {"role": "user",   "content": user_msg},
+                        ],
+                    },
+                )
+                r.raise_for_status()
+                data = r.json()
+                return data["choices"][0]["message"]["content"]
+        except Exception as e:
+            import traceback
+            print(f"DeepSeek {ds_model} error: {type(e).__name__}: {e}")
+            traceback.print_exc()
+            return None
+
     async def _call_gemini() -> Optional[str]:
         if not GEMINI_KEY:
             return None
@@ -833,6 +867,7 @@ async def rag_answer(question: str, cv_list: list[dict],
         "openai/gpt-4o-mini":          lambda: _call_openai("gpt-4o-mini"),
         "openai/gpt-4o":               lambda: _call_openai("gpt-4o"),
         "google/gemini-2.0-flash":     _call_gemini,
+        "deepseek/deepseek-reasoner":  lambda: _call_deepseek("deepseek-reasoner"),          # DeepSeek V3.2 thinking mode
     }
     DEFAULT_MODEL = "claudible/claude-haiku-4.5"
 
