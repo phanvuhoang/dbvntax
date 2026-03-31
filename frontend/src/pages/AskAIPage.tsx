@@ -90,14 +90,14 @@ export default function AskAIPage() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<AskResponse | null>(null);
   const [error, setError] = useState('');
-  const [selectedModel, setSelectedModel] = useState('anthropic/claude-haiku-4-5');
+  const [selectedModel, setSelectedModel] = useState('claudible/claude-haiku-4.5');
 
   const MODEL_OPTIONS = [
-    { value: 'anthropic/claude-haiku-4-5',  label: '⚡ Claude Haiku 4.5 (mặc định)' },
-    { value: 'anthropic/claude-sonnet-4-6', label: '🧠 Claude Sonnet 4.6 (chất lượng cao)' },
-    { value: 'openai/gpt-4o-mini',          label: '🔹 GPT-4o Mini' },
-    { value: 'openai/gpt-4o',               label: '🔷 GPT-4o' },
-    { value: 'google/gemini-2.5-flash',     label: '✨ Gemini 2.5 Flash' },
+    { value: 'claudible/claude-haiku-4.5',  label: '⚡ Claudible/claude-haiku-4.5 (nhanh, rẻ)' },
+    { value: 'anthropic/claude-sonnet-4-6', label: '🧠 Claude Sonnet 4.6 (lâu, chính xác, tốn kém)' },
+    { value: 'openai/gpt-4o-mini',          label: '🔹 GPT-4o Mini (nhanh, rẻ)' },
+    { value: 'openai/gpt-4o',               label: '🔷 GPT-4o (chậm, đắt)' },
+    { value: 'google/gemini-2.0-flash',     label: '✨ Gemini Flash 2.0' },
   ];
 
   const ask = async (q: string) => {

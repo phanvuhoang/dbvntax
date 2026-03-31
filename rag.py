@@ -25,7 +25,7 @@ CLAUDIBLE_SONNET = os.getenv("ANTHROPIC_DEFAULT_SONNET_MODEL", "claude-sonnet-4.
 CLAUDIBLE_OPUS   = os.getenv("ANTHROPIC_DEFAULT_OPUS_MODEL",   "claude-opus-4.6")
 
 GEMINI_KEY   = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1"  # fallback 2
 
 OPENAI_KEY   = os.getenv("OPENAI_API_KEY", "")   # fallback 3 (intent only + last resort)
@@ -94,13 +94,14 @@ def detect_timeline_query(question: str) -> bool:
 
 def extract_relevant_articles(text: str, question: str,
                                max_chars: int = 20_000,
-                               context_lines: int = 8) -> str:
+                               context_lines: int = 8,
+                               sac_thue_list: list = None) -> str:
     """
     Từ full text của văn bản, extract chỉ các Điều/Khoản liên quan đến câu hỏi.
 
     Strategy:
-    1. Split text thành các block theo "Điều X" hoặc "Khoản X"
-    2. Score mỗi block theo keyword overlap với câu hỏi
+    1. Split text thành các block theo "Điều X"
+    2. Score mỗi block theo keyword overlap với câu hỏi + sac_thue domains
     3. Luôn giữ: Điều 1 (phạm vi), Điều 2 (đối tượng) + top scored blocks
     4. Return concatenated, capped at max_chars
     """
@@ -118,81 +119,103 @@ def extract_relevant_articles(text: str, question: str,
     q_words = [w for w in _re.findall(r'[a-záàảãạăắằẳẵặâấầẩẫậđéèẻẽẹêếềểễệíìỉĩịóòỏõọôốồổỗộơớờởỡợúùủũụưứừửữựýỳỷỹỵ\w]+', q)
                if len(w) > 2 and w not in stopwords]
 
-    # Tax-domain keyword expansions
-    EXPANSIONS = {
+    # Tax-domain keyword expansions — triggered by câu hỏi OR sac_thue_list
+    SAC_THUE_KEYWORDS = {
+        "TNDN":     ["thu nhập doanh nghiệp", "thuế tndn", "chi phí được trừ", "thu nhập chịu thuế",
+                     "thuế suất tndn", "lợi nhuận", "doanh thu tính thuế"],
+        "GTGT":     ["giá trị gia tăng", "thuế gtgt", "vat", "khấu trừ đầu vào", "thuế đầu ra",
+                     "hàng hóa dịch vụ chịu thuế", "hoàn thuế gtgt"],
+        "TNCN":     ["thu nhập cá nhân", "thuế tncn", "pit", "giảm trừ gia cảnh", "khấu trừ tại nguồn"],
+        "FCT":      ["thuế nhà thầu", "nhà thầu nước ngoài", "foreign contractor", "withholding tax",
+                     "tổ chức nước ngoài", "cá nhân nước ngoài", "dịch vụ nước ngoài"],
+        "GDLK":     ["giao dịch liên kết", "transfer pricing", "chuyển giá", "arm's length",
+                     "bên liên kết", "lãi vay liên kết", "ebitda", "30%", "vốn mỏng",
+                     "nghị định 132", "nđ 132"],
+        "TTDB":     ["tiêu thụ đặc biệt", "thuế ttdb", "excise tax", "rượu bia thuốc lá"],
+        "HOA_DON":  ["hóa đơn điện tử", "hóa đơn hợp lệ", "hđkt", "chứng từ hợp lệ"],
+        "HKD":      ["hộ kinh doanh", "hộ cá thể", "thuế khoán", "doanh thu hộ kinh doanh"],
+        "XNK":      ["xuất nhập khẩu", "hải quan", "thuế nhập khẩu", "thuế xuất khẩu"],
+        "QLT":      ["quản lý thuế", "kê khai thuế", "nộp thuế", "quyết toán thuế",
+                     "ấn định thuế", "hoàn thuế", "miễn giảm thuế"],
+        "MON_BAI_PHI": ["môn bài", "lệ phí môn bài", "phí"],
+        "TAI_NGUYEN_DAT": ["tiền thuê đất", "sử dụng đất", "tài nguyên"],
+    }
+
+    # Build keyword set từ câu hỏi + sac_thue_list
+    domain_keywords = list(q_words)
+    active_domains = sac_thue_list or []
+    for domain in active_domains:
+        domain_keywords.extend(SAC_THUE_KEYWORDS.get(domain, []))
+
+    # Thêm expansions từ câu hỏi (backward compat)
+    QUESTION_EXPANSIONS = {
         "chi phí": ["chi phí được trừ", "khoản chi", "chi phí hợp lý", "điều kiện khấu trừ"],
-        "tndn": ["thu nhập doanh nghiệp", "thuế tndn", "thuế thu nhập"],
-        "gtgt": ["giá trị gia tăng", "thuế gtgt", "vat", "khấu trừ đầu vào"],
-        "tncn": ["thu nhập cá nhân", "thuế tncn", "pit"],
-        "fct": ["thuế nhà thầu", "nhà thầu nước ngoài", "foreign contractor"],
-        "chuyển giá": ["giao dịch liên kết", "transfer pricing", "liên kết", "arm's length"],
         "lãi vay": ["lãi tiền vay", "chi phí lãi vay", "vốn mỏng", "ebitda", "30%"],
         "khấu hao": ["khấu hao tài sản", "tscđ", "tài sản cố định"],
-        "hóa đơn": ["hóa đơn điện tử", "hđkt", "chứng từ"],
-        "xuất khẩu": ["hàng xuất khẩu", "thuế suất 0%", "hoàn thuế"],
+        "công ty mẹ": ["bên liên kết", "giao dịch liên kết", "thuế nhà thầu"],
+        "nước ngoài": ["nhà thầu nước ngoài", "tổ chức nước ngoài", "foreign"],
+        "rủi ro":   ["vi phạm", "phạt", "truy thu", "không được trừ", "loại trừ"],
     }
-    for kw, expansions in EXPANSIONS.items():
+    for kw, expansions in QUESTION_EXPANSIONS.items():
         if kw in q:
-            q_words.extend(expansions)
+            domain_keywords.extend(expansions)
 
-    # Split text into article blocks
-    # Pattern: "Điều X" hoặc "Chương X" as block header
-    article_pattern = _re.compile(
-        r'(?=(?:Điều|ĐIỀU)\s+\d+[\.:]?\s)',
-        _re.UNICODE
-    )
+    # Deduplicate
+    domain_keywords = list(dict.fromkeys(domain_keywords))
+
+    # Split text into article blocks by "Điều X"
+    article_pattern = _re.compile(r'(?=(?:Điều|ĐIỀU)\s+\d+[\.:]?\s)', _re.UNICODE)
     blocks = article_pattern.split(text)
 
     if len(blocks) <= 2:
-        # Không split được → fallback truncate
         return text[:max_chars]
 
     # Score each block
     def score_block(block_text: str) -> float:
         bt = unicodedata.normalize("NFC", block_text.lower())
         score = 0.0
-        for w in q_words:
+        for w in domain_keywords:
             count = bt.count(w)
             if count > 0:
-                score += min(count, 3) * (2.0 if len(w) > 5 else 1.0)
+                # Longer keywords = more specific = higher weight
+                weight = 3.0 if len(w) > 10 else (2.0 if len(w) > 5 else 1.0)
+                score += min(count, 3) * weight
         return score
 
     scored = []
     for i, block in enumerate(blocks):
         if not block.strip():
             continue
-        # Extract article number for priority boost
         m = _re.match(r'(?:Điều|ĐIỀU)\s+(\d+)', block.strip())
         art_num = int(m.group(1)) if m else 999
         s = score_block(block)
-        # Boost Điều 1-3 (scope/definitions) luôn hữu ích
+        # Điều 1-3 luôn hữu ích (scope/definitions)
         if art_num <= 3:
             s = max(s, 1.5)
         scored.append((s, art_num, i, block))
 
-    # Sort: score DESC, then article order
+    # Sort: score DESC
     top = sorted(scored, key=lambda x: (-x[0], x[2]))
 
-    # Take top blocks until max_chars
+    # Build result
     selected_indices = set()
     result_parts = []
     total_chars = 0
 
-    # Always include Điều 1-3 first
+    # Always include Điều 1-3
     for s, art_num, idx, block in scored:
         if art_num <= 3:
             selected_indices.add(idx)
             result_parts.append((idx, block))
             total_chars += len(block)
 
-    # Then top scored
+    # Top scored blocks
     for s, art_num, idx, block in top:
         if s <= 0:
             break
         if idx in selected_indices:
             continue
         if total_chars + len(block) > max_chars:
-            # Try to fit truncated version
             remaining = max_chars - total_chars
             if remaining > 500:
                 result_parts.append((idx, block[:remaining] + "\n[... còn tiếp ...]"))
@@ -205,7 +228,6 @@ def extract_relevant_articles(text: str, question: str,
     result_parts.sort(key=lambda x: x[0])
     result = "\n".join(p for _, p in result_parts)
 
-    # Fallback nếu extract ra quá ít
     if len(result.strip()) < 200:
         return text[:max_chars]
 
@@ -430,12 +452,13 @@ async def load_anchor_docs(db, sac_thue_list: list[str],
         # Sort: sắc thuế chính trước (priority 0), rồi importance, rồi ngay_ban_hanh
         all_rows.sort(key=lambda x: (x.get("_priority", 99), x.get("importance", 9), str(x.get("ngay_ban_hanh") or "")), reverse=False)
 
-        # Strip HTML + extract relevant articles theo câu hỏi
+        # Strip HTML + extract relevant articles theo câu hỏi + sac_thue domains
         for row in all_rows:
             full_text = strip_html_for_context(row.get("noi_dung") or "", max_chars=max_chars_per_doc)
             if question:
-                # Extract chỉ Điều/Khoản liên quan → ~20k chars/doc thay vì 80k
-                row["noi_dung_text"] = extract_relevant_articles(full_text, question, max_chars=20_000)
+                row["noi_dung_text"] = extract_relevant_articles(
+                    full_text, question, max_chars=20_000, sac_thue_list=sac_thue_list
+                )
             else:
                 row["noi_dung_text"] = full_text
             row["source"] = "anchor_doc"
@@ -690,11 +713,10 @@ async def rag_answer(question: str, cv_list: list[dict],
     model_used = None
 
     async def _call_anthropic(ant_model: str) -> Optional[str]:
-        """Gọi qua Claudible bằng OpenAI-completions format (/v1/chat/completions)."""
+        """Gọi qua Claudible — OpenAI-completions format. Dùng cho Haiku (fast, free)."""
         if not CLAUDIBLE_AUTH_TOKEN:
             return None
-        # Sonnet cần nhiều thời gian hơn Haiku với context lớn
-        _timeout = 240 if "sonnet" in ant_model or "opus" in ant_model else 120
+        _timeout = 180 if "sonnet" in ant_model or "opus" in ant_model else 120
         try:
             async with httpx.AsyncClient(timeout=_timeout) as client:
                 r = await client.post(
@@ -717,6 +739,35 @@ async def rag_answer(question: str, cv_list: list[dict],
         except Exception as e:
             import traceback
             print(f"Claudible {ant_model} error: {type(e).__name__}: {e}")
+            traceback.print_exc()
+            return None
+
+    async def _call_anthropic_direct(ant_model: str) -> Optional[str]:
+        """Gọi Anthropic API trực tiếp (không qua Claudible). Dùng cho Sonnet/Opus."""
+        if not ANTHROPIC_KEY:
+            print("Anthropic direct: ANTHROPIC_API_KEY not set")
+            return None
+        try:
+            async with httpx.AsyncClient(timeout=240) as client:
+                r = await client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={
+                        "x-api-key": ANTHROPIC_KEY,
+                        "anthropic-version": "2023-06-01",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": ant_model,
+                        "max_tokens": 8192,
+                        "system": system,
+                        "messages": [{"role": "user", "content": user_msg}],
+                    },
+                )
+                r.raise_for_status()
+                return r.json()["content"][0]["text"]
+        except Exception as e:
+            import traceback
+            print(f"Anthropic direct {ant_model} error: {type(e).__name__}: {e}")
             traceback.print_exc()
             return None
 
@@ -749,13 +800,13 @@ async def rag_answer(question: str, cv_list: list[dict],
 
     # ── Dispatch theo model đã chọn ─────────────────────────────────
     MODEL_MAP = {
-        "anthropic/claude-haiku-4-5":  lambda: _call_anthropic(CLAUDIBLE_HAIKU),   # "claude-haiku-4.5"
-        "anthropic/claude-sonnet-4-6": lambda: _call_anthropic(CLAUDIBLE_SONNET),  # "claude-sonnet-4.6"
+        "claudible/claude-haiku-4.5":  lambda: _call_anthropic("claude-haiku-4.5"),    # Claudible (free)
+        "anthropic/claude-sonnet-4-6": lambda: _call_anthropic_direct("claude-sonnet-4-6"),  # Anthropic direct
         "openai/gpt-4o-mini":          lambda: _call_openai("gpt-4o-mini"),
         "openai/gpt-4o":               lambda: _call_openai("gpt-4o"),
-        "google/gemini-2.5-flash":     _call_gemini,
+        "google/gemini-2.0-flash":     _call_gemini,
     }
-    DEFAULT_MODEL = "anthropic/claude-haiku-4-5"
+    DEFAULT_MODEL = "claudible/claude-haiku-4.5"
 
     selected = model if model in MODEL_MAP else DEFAULT_MODEL
     answer = await MODEL_MAP[selected]()
