@@ -12,12 +12,12 @@ import unicodedata
 import httpx
 from typing import Optional
 
-# Claudible — Anthropic SDK với base_url override
-# Dùng CLAUDIBLE_BASE_URL (không có /v1 ở cuối) + CLAUDIBLE_API_KEY
-# Fallback: ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN (tên cũ)
-_raw_base = os.getenv("CLAUDIBLE_BASE_URL") or os.getenv("ANTHROPIC_BASE_URL", "https://claudible.io")
-CLAUDIBLE_BASE_URL  = _raw_base.rstrip("/").removesuffix("/v1")  # strip trailing /v1 nếu có
-CLAUDIBLE_AUTH_TOKEN = os.getenv("CLAUDIBLE_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN", "")
+# Claudible — OpenAI-completions format
+# POST /v1/chat/completions với Bearer token
+# Env vars: ANTHROPIC_BASE_URL (e.g. https://claudible.io) + ANTHROPIC_AUTH_TOKEN
+_raw_base = os.getenv("ANTHROPIC_BASE_URL", "https://claudible.io")
+CLAUDIBLE_BASE_URL   = _raw_base.rstrip("/").removesuffix("/v1")  # normalize, strip /v1 nếu ai lỡ thêm
+CLAUDIBLE_AUTH_TOKEN = os.getenv("ANTHROPIC_AUTH_TOKEN", "")
 
 # Model names theo Claudible (dấu chấm, không phải gạch ngang)
 CLAUDIBLE_HAIKU  = os.getenv("ANTHROPIC_DEFAULT_HAIKU_MODEL",  "claude-haiku-4.5")
@@ -454,35 +454,7 @@ Chỉ trả về JSON object, không giải thích."""
     return result
 
 
-async def ask_claudible(question: str, context: str) -> str:
-    """Call Claudible API (Claude Haiku)."""
-    headers = {
-        "Authorization": f"Bearer {CLAUDIBLE_KEY}",
-        "Content-Type": "application/json",
-    }
-    body = {
-        "model": CLAUDIBLE_MODEL,
-        "max_tokens": 1500,
-        "system": SYSTEM_PROMPT,
-        "messages": [
-            {
-                "role": "user",
-                "content": f"""CÁC CÔNG VĂN THAM KHẢO:
-{context}
-
----
-
-CÂU HỎI: {question}
-
-Hãy trả lời dựa vào các công văn trên.""",
-            }
-        ],
-    }
-    async with httpx.AsyncClient(timeout=30) as client:
-        r = await client.post(f"{CLAUDIBLE_BASE}/messages", headers=headers, json=body)
-        r.raise_for_status()
-        data = r.json()
-        return data["content"][0]["text"]
+# ask_claudible() — hàm cũ, đã deprecated. Dùng _call_anthropic() trong rag_answer() thay thế.
 
 
 async def ask_openai(question: str, context: str) -> str:
