@@ -975,6 +975,7 @@ class AskRequest(BaseModel):
     docs_top_k: int = 5
     use_intent: bool = True
     model: str = "anthropic/claude-haiku-4-5"
+    sac_thue_override: Optional[List[str]] = None  # user-selected, tối đa 3
 
 class DocRelationCreate(BaseModel):
     source_id: int
@@ -1024,18 +1025,28 @@ async def ask(req: AskRequest, db: AsyncSession = Depends(get_db)):
     if not req.question or len(req.question.strip()) < 5:
         raise HTTPException(400, "Câu hỏi quá ngắn")
 
-    # Step 1: Analyze intent
-    if req.use_intent:
+    # Step 1: Analyze intent — hoặc dùng sac_thue_override từ user
+    if req.sac_thue_override and len(req.sac_thue_override) > 0:
+        # User đã chọn sắc thuế → skip intent, dùng thẳng (tối đa 3)
+        sac_thue = req.sac_thue_override[:3]
+        intent = {
+            "sac_thue": sac_thue,
+            "chu_de": req.question,
+            "search_queries": [req.question],
+            "is_timeline": False,
+        }
+    elif req.use_intent:
         intent = await analyze_intent(req.question)
+        sac_thue = intent.get("sac_thue", [])[:3]  # tối đa 3 sắc thuế
+        intent["sac_thue"] = sac_thue
     else:
         intent = {
             "sac_thue": [], "chu_de": req.question,
             "search_queries": [req.question], "is_timeline": False,
         }
+        sac_thue = []
 
-    queries   = intent.get("search_queries", [req.question])
-    sac_thue  = intent.get("sac_thue", [])
-    filter_st = sac_thue[0] if sac_thue else None
+    queries = intent.get("search_queries", [req.question])
     is_timeline = intent.get("is_timeline", False)
 
     # Step 2: Load anchor docs theo tất cả sắc thuế detect được

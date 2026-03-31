@@ -91,6 +91,29 @@ export default function AskAIPage() {
   const [result, setResult] = useState<AskResponse | null>(null);
   const [error, setError] = useState('');
   const [selectedModel, setSelectedModel] = useState('claudible/claude-haiku-4.5');
+  const [selectedSacThue, setSelectedSacThue] = useState<string[]>([]);
+
+  const SAC_THUE_OPTIONS = [
+    { code: 'GTGT',    label: 'GTGT' },
+    { code: 'TNDN',    label: 'TNDN' },
+    { code: 'TNCN',    label: 'TNCN' },
+    { code: 'TTDB',    label: 'TTDB' },
+    { code: 'FCT',     label: 'FCT' },
+    { code: 'GDLK',    label: 'GDLK' },
+    { code: 'HOA_DON', label: 'Hóa đơn' },
+    { code: 'HKD',     label: 'HKD' },
+    { code: 'XNK',     label: 'XNK' },
+    { code: 'QLT',     label: 'QLT' },
+    { code: 'THUE_QT', label: 'Thuế QT' },
+  ];
+
+  const toggleSacThue = (code: string) => {
+    setSelectedSacThue(prev => {
+      if (prev.includes(code)) return prev.filter(c => c !== code);
+      if (prev.length >= 3) return prev; // max 3
+      return [...prev, code];
+    });
+  };
 
   const MODEL_OPTIONS = [
     { value: 'claudible/claude-haiku-4.5',  label: '⚡ claudible/claude-haiku-4.5 (nhanh, rẻ)' },
@@ -106,10 +129,20 @@ export default function AskAIPage() {
     setError('');
     setResult(null);
     try {
+      const payload: Record<string, unknown> = {
+        question: q.trim(),
+        top_k: 15,
+        model: selectedModel,
+      };
+      // Nếu user chọn sắc thuế → override intent, tối đa 3, bỏ sắc thuế thứ 4+
+      if (selectedSacThue.length > 0) {
+        payload.sac_thue_override = selectedSacThue.slice(0, 3);
+        payload.use_intent = false;
+      }
       const res = await fetch('/api/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: q.trim(), top_k: 15, model: selectedModel }),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error(`Lỗi ${res.status}: ${res.statusText}`);
       const data: AskResponse = await res.json();
@@ -305,6 +338,38 @@ export default function AskAIPage() {
       {/* Input area */}
       <div className="flex-shrink-0 border-t border-gray-200 bg-white px-4 py-3">
         <div className="max-w-3xl mx-auto space-y-2">
+
+          {/* Sắc thuế multi-select */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[11px] text-gray-400 whitespace-nowrap">Sắc thuế (tối đa 3):</span>
+            {SAC_THUE_OPTIONS.map(opt => {
+              const selected = selectedSacThue.includes(opt.code);
+              const disabled = !selected && selectedSacThue.length >= 3;
+              return (
+                <button
+                  key={opt.code}
+                  onClick={() => !disabled && toggleSacThue(opt.code)}
+                  className={`text-[11px] px-2 py-0.5 rounded-full border transition font-medium
+                    ${selected
+                      ? 'bg-primary text-white border-primary'
+                      : disabled
+                        ? 'bg-gray-50 text-gray-300 border-gray-200 cursor-not-allowed'
+                        : 'bg-white text-gray-600 border-gray-300 hover:border-primary hover:text-primary'
+                    }`}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+            {selectedSacThue.length > 0 && (
+              <button
+                onClick={() => setSelectedSacThue([])}
+                className="text-[11px] text-gray-400 hover:text-red-500 transition ml-1"
+                title="Xóa bộ lọc"
+              >✕ bỏ lọc</button>
+            )}
+          </div>
+
           {/* Model selector */}
           <div className="flex items-center gap-2">
             <span className="text-[11px] text-gray-400 whitespace-nowrap">Model AI:</span>
@@ -317,7 +382,13 @@ export default function AskAIPage() {
                 <option key={m.value} value={m.value}>{m.label}</option>
               ))}
             </select>
+            {selectedSacThue.length > 0 && (
+              <span className="text-[11px] text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-0.5">
+                🎯 Chỉ tìm: {selectedSacThue.join(', ')}
+              </span>
+            )}
           </div>
+
           {/* Question input */}
           <div className="flex gap-2 items-end">
           <textarea
