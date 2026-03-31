@@ -1040,7 +1040,7 @@ async def ask(req: AskRequest, db: AsyncSession = Depends(get_db)):
 
     # Step 2: Load anchor docs theo tất cả sắc thuế detect được (CV tạm bỏ)
     anchor_docs = await (
-        load_anchor_docs(db, sac_thue) if not is_timeline else _empty_list()
+        load_anchor_docs(db, sac_thue, question=req.question) if not is_timeline else _empty_list()
     )
 
     # Step 3: Nếu không có anchor → fallback vector search docs

@@ -92,6 +92,126 @@ def detect_timeline_query(question: str) -> bool:
     return any(_re.search(p, q) for p in patterns)
 
 
+def extract_relevant_articles(text: str, question: str,
+                               max_chars: int = 20_000,
+                               context_lines: int = 8) -> str:
+    """
+    Từ full text của văn bản, extract chỉ các Điều/Khoản liên quan đến câu hỏi.
+
+    Strategy:
+    1. Split text thành các block theo "Điều X" hoặc "Khoản X"
+    2. Score mỗi block theo keyword overlap với câu hỏi
+    3. Luôn giữ: Điều 1 (phạm vi), Điều 2 (đối tượng) + top scored blocks
+    4. Return concatenated, capped at max_chars
+    """
+    import re as _re
+
+    if not text or len(text) < 500:
+        return text[:max_chars] if text else ""
+
+    # Normalize question → keywords
+    q = unicodedata.normalize("NFC", question.lower())
+    # Remove stopwords VN
+    stopwords = {"và", "của", "có", "là", "được", "không", "trong", "cho", "với",
+                 "các", "một", "này", "đó", "từ", "đến", "về", "theo", "thì",
+                 "hay", "hoặc", "như", "khi", "nếu", "vì", "do", "bởi", "mà"}
+    q_words = [w for w in _re.findall(r'[a-záàảãạăắằẳẵặâấầẩẫậđéèẻẽẹêếềểễệíìỉĩịóòỏõọôốồổỗộơớờởỡợúùủũụưứừửữựýỳỷỹỵ\w]+', q)
+               if len(w) > 2 and w not in stopwords]
+
+    # Tax-domain keyword expansions
+    EXPANSIONS = {
+        "chi phí": ["chi phí được trừ", "khoản chi", "chi phí hợp lý", "điều kiện khấu trừ"],
+        "tndn": ["thu nhập doanh nghiệp", "thuế tndn", "thuế thu nhập"],
+        "gtgt": ["giá trị gia tăng", "thuế gtgt", "vat", "khấu trừ đầu vào"],
+        "tncn": ["thu nhập cá nhân", "thuế tncn", "pit"],
+        "fct": ["thuế nhà thầu", "nhà thầu nước ngoài", "foreign contractor"],
+        "chuyển giá": ["giao dịch liên kết", "transfer pricing", "liên kết", "arm's length"],
+        "lãi vay": ["lãi tiền vay", "chi phí lãi vay", "vốn mỏng", "ebitda", "30%"],
+        "khấu hao": ["khấu hao tài sản", "tscđ", "tài sản cố định"],
+        "hóa đơn": ["hóa đơn điện tử", "hđkt", "chứng từ"],
+        "xuất khẩu": ["hàng xuất khẩu", "thuế suất 0%", "hoàn thuế"],
+    }
+    for kw, expansions in EXPANSIONS.items():
+        if kw in q:
+            q_words.extend(expansions)
+
+    # Split text into article blocks
+    # Pattern: "Điều X" hoặc "Chương X" as block header
+    article_pattern = _re.compile(
+        r'(?=(?:Điều|ĐIỀU)\s+\d+[\.:]?\s)',
+        _re.UNICODE
+    )
+    blocks = article_pattern.split(text)
+
+    if len(blocks) <= 2:
+        # Không split được → fallback truncate
+        return text[:max_chars]
+
+    # Score each block
+    def score_block(block_text: str) -> float:
+        bt = unicodedata.normalize("NFC", block_text.lower())
+        score = 0.0
+        for w in q_words:
+            count = bt.count(w)
+            if count > 0:
+                score += min(count, 3) * (2.0 if len(w) > 5 else 1.0)
+        return score
+
+    scored = []
+    for i, block in enumerate(blocks):
+        if not block.strip():
+            continue
+        # Extract article number for priority boost
+        m = _re.match(r'(?:Điều|ĐIỀU)\s+(\d+)', block.strip())
+        art_num = int(m.group(1)) if m else 999
+        s = score_block(block)
+        # Boost Điều 1-3 (scope/definitions) luôn hữu ích
+        if art_num <= 3:
+            s = max(s, 1.5)
+        scored.append((s, art_num, i, block))
+
+    # Sort: score DESC, then article order
+    top = sorted(scored, key=lambda x: (-x[0], x[2]))
+
+    # Take top blocks until max_chars
+    selected_indices = set()
+    result_parts = []
+    total_chars = 0
+
+    # Always include Điều 1-3 first
+    for s, art_num, idx, block in scored:
+        if art_num <= 3:
+            selected_indices.add(idx)
+            result_parts.append((idx, block))
+            total_chars += len(block)
+
+    # Then top scored
+    for s, art_num, idx, block in top:
+        if s <= 0:
+            break
+        if idx in selected_indices:
+            continue
+        if total_chars + len(block) > max_chars:
+            # Try to fit truncated version
+            remaining = max_chars - total_chars
+            if remaining > 500:
+                result_parts.append((idx, block[:remaining] + "\n[... còn tiếp ...]"))
+            break
+        selected_indices.add(idx)
+        result_parts.append((idx, block))
+        total_chars += len(block)
+
+    # Sort by original article order
+    result_parts.sort(key=lambda x: x[0])
+    result = "\n".join(p for _, p in result_parts)
+
+    # Fallback nếu extract ra quá ít
+    if len(result.strip()) < 200:
+        return text[:max_chars]
+
+    return result
+
+
 def strip_html_for_context(html: str, max_chars: int = 0) -> str:
     """Strip HTML tags, normalize whitespace. Optionally truncate."""
     if not html:
@@ -243,7 +363,8 @@ Nội dung: {noi_dung}"""
 
 
 async def load_anchor_docs(db, sac_thue_list: list[str],
-                           max_chars_per_doc: int = 25_000) -> list[dict]:
+                           max_chars_per_doc: int = 80_000,
+                           question: str = "") -> list[dict]:
     """
     Load anchor docs theo thứ tự ưu tiên sắc thuế.
 
@@ -252,6 +373,7 @@ async def load_anchor_docs(db, sac_thue_list: list[str],
     - Các sắc thuế phụ → mỗi sắc tối đa 1-2 docs
     - Sort cuối: sắc thuế chính trước, rồi importance ASC, ngay_ban_hanh DESC
     - Giới hạn tổng: 8 docs để không làm loãng context
+    - extract_relevant_articles() → chỉ giữ Điều liên quan đến câu hỏi (~20k/doc)
     """
     from sqlalchemy import text as _text
 
@@ -269,7 +391,8 @@ async def load_anchor_docs(db, sac_thue_list: list[str],
             """))
             rows = [dict(row) for row in r.mappings().all()]
             for row in rows:
-                row["noi_dung_text"] = strip_html_for_context(row.get("noi_dung") or "", max_chars=max_chars_per_doc)
+                full_text = strip_html_for_context(row.get("noi_dung") or "", max_chars=max_chars_per_doc)
+                row["noi_dung_text"] = extract_relevant_articles(full_text, question, max_chars=20_000) if question else full_text
                 row["source"] = "anchor_doc"
             return rows
         except Exception as e:
@@ -307,9 +430,14 @@ async def load_anchor_docs(db, sac_thue_list: list[str],
         # Sort: sắc thuế chính trước (priority 0), rồi importance, rồi ngay_ban_hanh
         all_rows.sort(key=lambda x: (x.get("_priority", 99), x.get("importance", 9), str(x.get("ngay_ban_hanh") or "")), reverse=False)
 
-        # Strip HTML
+        # Strip HTML + extract relevant articles theo câu hỏi
         for row in all_rows:
-            row["noi_dung_text"] = strip_html_for_context(row.get("noi_dung") or "", max_chars=max_chars_per_doc)
+            full_text = strip_html_for_context(row.get("noi_dung") or "", max_chars=max_chars_per_doc)
+            if question:
+                # Extract chỉ Điều/Khoản liên quan → ~20k chars/doc thay vì 80k
+                row["noi_dung_text"] = extract_relevant_articles(full_text, question, max_chars=20_000)
+            else:
+                row["noi_dung_text"] = full_text
             row["source"] = "anchor_doc"
 
         return all_rows[:8]  # tổng tối đa 8
@@ -342,7 +470,7 @@ def build_context_with_anchors(anchor_docs: list[dict], cv_list: list[dict],
                      "Ưu tiên trích dẫn từ các văn bản này.\n")
         for i, d in enumerate(anchor_docs, 1):
             hl = f" | Hiệu lực từ: {d.get('hieu_luc_tu')}" if d.get("hieu_luc_tu") else ""
-            noi_dung = d.get("noi_dung_text") or strip(d.get("noi_dung", ""), 25_000)
+            noi_dung = d.get("noi_dung_text") or strip(d.get("noi_dung", ""), 80_000)
             parts.append(
                 f"[VB{i}] {d.get('loai', '')} {d.get('so_hieu', '')} "
                 f"(ban hành: {d.get('ngay_ban_hanh', '')}{hl})\n"
