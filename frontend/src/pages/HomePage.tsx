@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import type { Document, CongVan } from '../types';
 import { useSearch, useCongVan, useHealth } from '../api';
 import { useAuth } from '../auth';
@@ -53,7 +53,23 @@ export default function HomePage() {
 
   const auth = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { data: health } = useHealth();
+
+  // Deep link: ?doc=<id> → auto-open document
+  useEffect(() => {
+    const docId = searchParams.get('doc');
+    if (!docId) return;
+    fetch(`/api/documents/${docId}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(doc => {
+        if (doc) {
+          setSelectedItem(doc);
+          setTab('vanban');
+        }
+      })
+      .catch(() => {});
+  }, [searchParams]);
 
   const searchResult = useSearch({
     q: query,

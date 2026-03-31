@@ -863,14 +863,14 @@ async def rag_answer(question: str, cv_list: list[dict],
         model_used = "error"
 
     # Build sources
-    CORPUS_BASE = "https://phanvuhoang.github.io/vn-tax-corpus"
+    DBVNTAX_BASE = "https://dbvntax.gpt4vn.com"
     sources = []
     for d in (anchor_docs + docs):
-        github_path = d.get("github_path") or ""
+        doc_id = d.get("id")
         link = (
             d.get("tvpl_url") or
             d.get("link_tvpl") or
-            (f"{CORPUS_BASE}/{github_path}" if github_path else None)
+            (f"{DBVNTAX_BASE}/?doc={doc_id}" if doc_id else None)
         )
         sources.append({
             "source_type": "document",
