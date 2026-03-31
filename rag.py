@@ -42,6 +42,8 @@ Quy tắc bắt buộc:
 1. Chỉ dùng thông tin từ tài liệu được cung cấp, KHÔNG suy đoán hay dùng kiến thức ngoài
 2. Trả lời đầy đủ, KHÔNG cắt giữa chừng
 3. Trả lời bằng tiếng Việt, rõ ràng, có cấu trúc
+4. ĐỌC VÀ TRÍCH DẪN TỪ TẤT CẢ văn bản được cung cấp — KHÔNG được chỉ tập trung vào 1 văn bản và bỏ qua phần còn lại
+5. Luật quy định nguyên tắc, Nghị định quy định chi tiết, Thông tư hướng dẫn — mỗi loại có vai trò riêng, phải tổng hợp đầy đủ
 
 Định dạng trả lời:
 **[Kết luận ngắn gọn 1-2 câu]**
@@ -406,7 +408,7 @@ async def load_anchor_docs(db, sac_thue_list: list[str],
             r = await db.execute(_text("""
                 SELECT id, so_hieu, ten, loai, ngay_ban_hanh, hieu_luc_tu,
                        het_hieu_luc_tu, tinh_trang, sac_thue, tvpl_url, link_tvpl,
-                       noi_dung
+                       github_path, noi_dung
                 FROM documents
                 WHERE is_anchor = TRUE AND tinh_trang != 'het_hieu_luc'
                 ORDER BY importance ASC, ngay_ban_hanh DESC
@@ -435,7 +437,7 @@ async def load_anchor_docs(db, sac_thue_list: list[str],
             r = await db.execute(_text("""
                 SELECT id, so_hieu, ten, loai, ngay_ban_hanh, hieu_luc_tu,
                        het_hieu_luc_tu, tinh_trang, sac_thue, tvpl_url, link_tvpl,
-                       noi_dung
+                       github_path, noi_dung
                 FROM documents
                 WHERE is_anchor = TRUE
                   AND tinh_trang != 'het_hieu_luc'
@@ -489,9 +491,13 @@ def build_context_with_anchors(anchor_docs: list[dict], cv_list: list[dict],
     parts = []
 
     if anchor_docs:
-        parts.append("=== VĂN BẢN PHÁP LUẬT NỀN TẢNG (Hiện hành) ===")
-        parts.append("Đây là các văn bản pháp luật hiện hành quan trọng nhất. "
-                     "Ưu tiên trích dẫn từ các văn bản này.\n")
+        n = len(anchor_docs)
+        parts.append(f"=== CÓ {n} VĂN BẢN PHÁP LUẬT — ĐỌC VÀ TRÍCH DẪN ĐẦY ĐỦ TẤT CẢ {n} VĂN BẢN ===")
+        parts.append(
+            f"⚠️ QUAN TRỌNG: Có {n} văn bản bên dưới. Bạn PHẢI đọc và trích dẫn từ TẤT CẢ {n} văn bản, "
+            "không được bỏ qua bất kỳ văn bản nào. Mỗi văn bản có thể quy định các khía cạnh khác nhau "
+            "của cùng một vấn đề (Luật quy định nguyên tắc, Nghị định quy định chi tiết, Thông tư hướng dẫn).\n"
+        )
         for i, d in enumerate(anchor_docs, 1):
             hl = f" | Hiệu lực từ: {d.get('hieu_luc_tu')}" if d.get("hieu_luc_tu") else ""
             noi_dung = d.get("noi_dung_text") or strip(d.get("noi_dung", ""), 80_000)
@@ -857,8 +863,15 @@ async def rag_answer(question: str, cv_list: list[dict],
         model_used = "error"
 
     # Build sources
+    CORPUS_BASE = "https://phanvuhoang.github.io/vn-tax-corpus"
     sources = []
     for d in (anchor_docs + docs):
+        github_path = d.get("github_path") or ""
+        link = (
+            d.get("tvpl_url") or
+            d.get("link_tvpl") or
+            (f"{CORPUS_BASE}/{github_path}" if github_path else None)
+        )
         sources.append({
             "source_type": "document",
             "is_anchor": d.get("source") == "anchor_doc",
@@ -867,7 +880,7 @@ async def rag_answer(question: str, cv_list: list[dict],
             "hieu_luc_tu": str(d.get("hieu_luc_tu") or ""),
             "het_hieu_luc_tu": str(d.get("het_hieu_luc_tu") or ""),
             "tinh_trang": d.get("tinh_trang"),
-            "link_nguon": d.get("tvpl_url") or d.get("link_tvpl"),
+            "link_nguon": link,
             "score": round(float(d.get("score") or 1.0), 3),
         })
     # CV tạm bỏ khỏi sources (chất lượng chưa đủ)

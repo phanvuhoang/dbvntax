@@ -203,13 +203,15 @@ export default function AskAIPage() {
               {(result.sources?.length ?? 0) > 0 && (() => {
                 const docSources = result.sources.filter(s => s.source_type === 'document');
                 const cvSources = result.sources.filter(s => s.source_type === 'cong_van');
-                const renderSource = (src: AskSource, i: number) => (
-                  <a
+                const renderSource = (src: AskSource, i: number) => {
+                  const href = src.link_nguon || null;
+                  const El = href ? 'a' : 'div';
+                  const linkProps = href ? { href, target: '_blank', rel: 'noopener noreferrer' } : {};
+                  return (
+                  <El
                     key={i}
-                    href={src.tvpl_url || src.link_nguon || '#'}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={`flex items-start justify-between gap-3 border rounded-lg px-3 py-2.5 hover:border-primary hover:bg-primary-light transition group no-underline ${src.is_anchor ? 'border-yellow-300 bg-yellow-50' : 'border-gray-200'}`}
+                    {...linkProps}
+                    className={`flex items-start justify-between gap-3 border rounded-lg px-3 py-2.5 hover:border-primary hover:bg-primary-light transition group no-underline ${src.is_anchor ? 'border-yellow-300 bg-yellow-50' : 'border-gray-200'} ${href ? 'cursor-pointer' : 'cursor-default'}`}
                   >
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -264,8 +266,9 @@ export default function AskAIPage() {
                         </span>
                       )}
                     </div>
-                  </a>
-                );
+                  </El>
+                  );
+                };
                 return (
                   <div className="space-y-3">
                     {docSources.length > 0 && (
