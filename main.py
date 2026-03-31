@@ -1038,9 +1038,13 @@ async def ask(req: AskRequest, db: AsyncSession = Depends(get_db)):
     filter_st = sac_thue[0] if sac_thue else None
     is_timeline = intent.get("is_timeline", False)
 
-    # Step 2: Load anchor docs theo tất cả sắc thuế detect được (CV tạm bỏ)
+    # Step 2: Load anchor docs theo tất cả sắc thuế detect được
+    # Claudible Sonnet: giảm context/doc để tránh Cloudflare 524 timeout
+    is_claudible_sonnet = req.model == "claudible/claude-sonnet-4.6"
+    article_max_chars = 10_000 if is_claudible_sonnet else 20_000
     anchor_docs = await (
-        load_anchor_docs(db, sac_thue, question=req.question) if not is_timeline else _empty_list()
+        load_anchor_docs(db, sac_thue, question=req.question, article_max_chars=article_max_chars)
+        if not is_timeline else _empty_list()
     )
 
     # Step 3: Nếu không có anchor → fallback vector search docs

@@ -386,7 +386,8 @@ Nội dung: {noi_dung}"""
 
 async def load_anchor_docs(db, sac_thue_list: list[str],
                            max_chars_per_doc: int = 80_000,
-                           question: str = "") -> list[dict]:
+                           question: str = "",
+                           article_max_chars: int = 20_000) -> list[dict]:
     """
     Load anchor docs theo thứ tự ưu tiên sắc thuế.
 
@@ -414,7 +415,7 @@ async def load_anchor_docs(db, sac_thue_list: list[str],
             rows = [dict(row) for row in r.mappings().all()]
             for row in rows:
                 full_text = strip_html_for_context(row.get("noi_dung") or "", max_chars=max_chars_per_doc)
-                row["noi_dung_text"] = extract_relevant_articles(full_text, question, max_chars=20_000) if question else full_text
+                row["noi_dung_text"] = extract_relevant_articles(full_text, question, max_chars=article_max_chars) if question else full_text
                 row["source"] = "anchor_doc"
             return rows
         except Exception as e:
@@ -457,7 +458,7 @@ async def load_anchor_docs(db, sac_thue_list: list[str],
             full_text = strip_html_for_context(row.get("noi_dung") or "", max_chars=max_chars_per_doc)
             if question:
                 row["noi_dung_text"] = extract_relevant_articles(
-                    full_text, question, max_chars=20_000, sac_thue_list=sac_thue_list
+                    full_text, question, max_chars=article_max_chars, sac_thue_list=sac_thue_list
                 )
             else:
                 row["noi_dung_text"] = full_text
@@ -729,7 +730,9 @@ async def rag_answer(question: str, cv_list: list[dict],
                         },
                         json={
                             "model": ant_model,
-                            "max_tokens": 8192,
+                            # Claudible Sonnet bị Cloudflare 524 nếu generate quá lâu (>100s)
+                            # Haiku: 8192 OK, Sonnet: cap 4096 để fit trong 100s CF timeout
+                            "max_tokens": 4096 if ("sonnet" in ant_model or "opus" in ant_model) else 8192,
                             "messages": [
                                 {"role": "system", "content": system},
                                 {"role": "user",   "content": user_msg},
