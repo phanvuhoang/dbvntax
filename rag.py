@@ -717,30 +717,48 @@ async def rag_answer(question: str, cv_list: list[dict],
         if not CLAUDIBLE_AUTH_TOKEN:
             return None
         _timeout = 180 if "sonnet" in ant_model or "opus" in ant_model else 120
-        try:
-            async with httpx.AsyncClient(timeout=_timeout) as client:
-                r = await client.post(
-                    f"{CLAUDIBLE_BASE_URL}/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {CLAUDIBLE_AUTH_TOKEN}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": ant_model,
-                        "max_tokens": 8192,
-                        "messages": [
-                            {"role": "system", "content": system},
-                            {"role": "user",   "content": user_msg},
-                        ],
-                    },
-                )
-                r.raise_for_status()
-                return r.json()["choices"][0]["message"]["content"]
-        except Exception as e:
-            import traceback
-            print(f"Claudible {ant_model} error: {type(e).__name__}: {e}")
-            traceback.print_exc()
-            return None
+        max_retries = 3
+        for attempt in range(1, max_retries + 1):
+            try:
+                async with httpx.AsyncClient(timeout=_timeout) as client:
+                    r = await client.post(
+                        f"{CLAUDIBLE_BASE_URL}/v1/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {CLAUDIBLE_AUTH_TOKEN}",
+                            "Content-Type": "application/json",
+                        },
+                        json={
+                            "model": ant_model,
+                            "max_tokens": 8192,
+                            "messages": [
+                                {"role": "system", "content": system},
+                                {"role": "user",   "content": user_msg},
+                            ],
+                        },
+                    )
+                    if r.status_code == 503 and attempt < max_retries:
+                        wait = attempt * 3  # 3s, 6s
+                        print(f"Claudible {ant_model} 503 (attempt {attempt}/{max_retries}), retry in {wait}s...")
+                        await asyncio.sleep(wait)
+                        continue
+                    r.raise_for_status()
+                    return r.json()["choices"][0]["message"]["content"]
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 503 and attempt < max_retries:
+                    wait = attempt * 3
+                    print(f"Claudible {ant_model} 503 (attempt {attempt}/{max_retries}), retry in {wait}s...")
+                    await asyncio.sleep(wait)
+                    continue
+                import traceback
+                print(f"Claudible {ant_model} error: {type(e).__name__}: {e}")
+                traceback.print_exc()
+                return None
+            except Exception as e:
+                import traceback
+                print(f"Claudible {ant_model} error: {type(e).__name__}: {e}")
+                traceback.print_exc()
+                return None
+        return None
 
     async def _call_anthropic_direct(ant_model: str) -> Optional[str]:
         """Gọi Anthropic API trực tiếp (không qua Claudible). Dùng cho Sonnet/Opus."""
