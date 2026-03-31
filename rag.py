@@ -25,8 +25,8 @@ CLAUDIBLE_SONNET = os.getenv("ANTHROPIC_DEFAULT_SONNET_MODEL", "claude-sonnet-4.
 CLAUDIBLE_OPUS   = os.getenv("ANTHROPIC_DEFAULT_OPUS_MODEL",   "claude-opus-4.6")
 
 GEMINI_KEY   = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
-GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1"  # fallback 2
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"  # v1 deprecated, dùng v1beta
 
 OPENAI_KEY   = os.getenv("OPENAI_API_KEY", "")   # fallback 3 (intent only + last resort)
 

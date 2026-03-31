@@ -98,7 +98,7 @@ export default function AskAIPage() {
     { value: 'anthropic/claude-sonnet-4-6', label: '💎 Claude Sonnet 4.6 Anthropic (lâu, chính xác, tốn kém)' },
     { value: 'openai/gpt-4o-mini',          label: '🔹 GPT-4o Mini (nhanh, rẻ)' },
     { value: 'openai/gpt-4o',               label: '🔷 GPT-4o (chậm, đắt)' },
-    { value: 'google/gemini-2.0-flash',     label: '✨ Gemini Flash 2.0' },
+    { value: 'google/gemini-2.0-flash',     label: '✨ Gemini 2.5 Flash' },
   ];
 
   const ask = async (q: string) => {
