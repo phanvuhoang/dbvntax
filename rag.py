@@ -585,7 +585,9 @@ async def rag_answer(question: str, cv_list: list[dict],
                 r.raise_for_status()
                 return r.json()["choices"][0]["message"]["content"]
         except Exception as e:
-            print(f"Claudible {ant_model} error: {e}")
+            import traceback
+            print(f"Claudible {ant_model} error: {type(e).__name__}: {e}")
+            traceback.print_exc()
             return None
 
     async def _call_openai(oai_model: str) -> Optional[str]:
