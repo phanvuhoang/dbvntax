@@ -243,7 +243,7 @@ Nội dung: {noi_dung}"""
 
 
 async def load_anchor_docs(db, sac_thue_list: list[str],
-                           max_chars_per_doc: int = 80_000) -> list[dict]:
+                           max_chars_per_doc: int = 25_000) -> list[dict]:
     """
     Load anchor docs theo thứ tự ưu tiên sắc thuế.
 
@@ -342,7 +342,7 @@ def build_context_with_anchors(anchor_docs: list[dict], cv_list: list[dict],
                      "Ưu tiên trích dẫn từ các văn bản này.\n")
         for i, d in enumerate(anchor_docs, 1):
             hl = f" | Hiệu lực từ: {d.get('hieu_luc_tu')}" if d.get("hieu_luc_tu") else ""
-            noi_dung = d.get("noi_dung_text") or strip(d.get("noi_dung", ""), 80_000)
+            noi_dung = d.get("noi_dung_text") or strip(d.get("noi_dung", ""), 25_000)
             parts.append(
                 f"[VB{i}] {d.get('loai', '')} {d.get('so_hieu', '')} "
                 f"(ban hành: {d.get('ngay_ban_hanh', '')}{hl})\n"
@@ -565,8 +565,10 @@ async def rag_answer(question: str, cv_list: list[dict],
         """Gọi qua Claudible bằng OpenAI-completions format (/v1/chat/completions)."""
         if not CLAUDIBLE_AUTH_TOKEN:
             return None
+        # Sonnet cần nhiều thời gian hơn Haiku với context lớn
+        _timeout = 240 if "sonnet" in ant_model or "opus" in ant_model else 120
         try:
-            async with httpx.AsyncClient(timeout=120) as client:
+            async with httpx.AsyncClient(timeout=_timeout) as client:
                 r = await client.post(
                     f"{CLAUDIBLE_BASE_URL}/v1/chat/completions",
                     headers={
