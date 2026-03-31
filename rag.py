@@ -800,8 +800,9 @@ async def rag_answer(question: str, cv_list: list[dict],
 
     # ── Dispatch theo model đã chọn ─────────────────────────────────
     MODEL_MAP = {
-        "claudible/claude-haiku-4.5":  lambda: _call_anthropic("claude-haiku-4.5"),    # Claudible (free)
-        "anthropic/claude-sonnet-4-6": lambda: _call_anthropic_direct("claude-sonnet-4-6"),  # Anthropic direct
+        "claudible/claude-haiku-4.5":  lambda: _call_anthropic("claude-haiku-4.5"),         # Claudible Haiku (free, fast)
+        "claudible/claude-sonnet-4.6": lambda: _call_anthropic("claude-sonnet-4.6"),         # Claudible Sonnet (free, slow)
+        "anthropic/claude-sonnet-4-6": lambda: _call_anthropic_direct("claude-sonnet-4-6"), # Anthropic direct (paid)
         "openai/gpt-4o-mini":          lambda: _call_openai("gpt-4o-mini"),
         "openai/gpt-4o":               lambda: _call_openai("gpt-4o"),
         "google/gemini-2.0-flash":     _call_gemini,
@@ -809,14 +810,18 @@ async def rag_answer(question: str, cv_list: list[dict],
     DEFAULT_MODEL = "claudible/claude-haiku-4.5"
 
     selected = model if model in MODEL_MAP else DEFAULT_MODEL
+
+    # Claudible Sonnet: NO fallback — fail fast, hiện lỗi rõ để debug
+    no_fallback = {"claudible/claude-sonnet-4.6"}
+
     answer = await MODEL_MAP[selected]()
     model_used = selected
 
-    # Fallback nếu model chính fail
-    if answer is None:
+    # Fallback nếu model chính fail (skip no_fallback models)
+    if answer is None and selected not in no_fallback:
         print(f"Primary model {selected} failed, trying fallbacks...")
         for fallback_key, fallback_fn in MODEL_MAP.items():
-            if fallback_key == selected:
+            if fallback_key == selected or fallback_key in no_fallback:
                 continue
             answer = await fallback_fn()
             if answer:
@@ -824,7 +829,10 @@ async def rag_answer(question: str, cv_list: list[dict],
                 break
 
     if answer is None:
-        answer = "Lỗi hệ thống: không thể kết nối AI. Vui lòng thử lại."
+        if selected in no_fallback:
+            answer = f"⚠️ {selected} không phản hồi. Vui lòng thử lại hoặc chọn model khác."
+        else:
+            answer = "Lỗi hệ thống: không thể kết nối AI. Vui lòng thử lại."
         model_used = "error"
 
     # Build sources
