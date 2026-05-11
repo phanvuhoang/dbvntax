@@ -414,12 +414,14 @@ async def canonical_stats(
         out["review_pending"] = r.scalar() or 0
         r = await db.execute(text("SELECT COUNT(*) FROM documents_export_keys WHERE revoked_at IS NULL"))
         out["active_keys"] = r.scalar() or 0
-        r = await db.execute(text("""
-            SELECT effective_status, COUNT(*) AS c FROM documents
-            WHERE effective_status IS NOT NULL
-            GROUP BY effective_status
-        """))
-        out["effective_status"] = {m["effective_status"]: m["c"] for m in r.mappings().all()}
+        out["effective_status"] = {"documents": {}, "cong_van": {}}
+        for tbl in ("documents", "cong_van"):
+            r = await db.execute(text(f"""
+                SELECT effective_status, COUNT(*) AS c FROM {tbl}
+                WHERE effective_status IS NOT NULL
+                GROUP BY effective_status
+            """))
+            out["effective_status"][tbl] = {m["effective_status"]: m["c"] for m in r.mappings().all()}
         r = await db.execute(text("""
             SELECT event, COUNT(*) AS c FROM documents_audit
             WHERE created_at >= NOW() - INTERVAL '7 days'
