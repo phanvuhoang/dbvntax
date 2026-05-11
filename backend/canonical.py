@@ -412,6 +412,14 @@ async def export_document(
     so_hieu = doc.get("so_hieu") or ""
     body = doc.get("noi_dung") or doc.get("tom_tat") or ""
 
+    sac_raw = doc.get("sac_thue")
+    if isinstance(sac_raw, list):
+        sac_display = ", ".join(fe_sac_thue(s) if isinstance(s, str) else str(s) for s in sac_raw)
+    elif isinstance(sac_raw, str):
+        sac_display = fe_sac_thue(sac_raw)
+    else:
+        sac_display = ""
+
     if format == "md":
         meta_lines = [
             f"# {title}",
@@ -419,7 +427,7 @@ async def export_document(
             f"- **Số hiệu:** {so_hieu}",
             f"- **Cơ quan:** {doc.get('co_quan_ban_hanh','')}",
             f"- **Ngày ban hành:** {doc.get('ngay_ban_hanh','')}",
-            f"- **Sắc thuế:** {fe_sac_thue(doc.get('sac_thue','')) if doc.get('sac_thue') else ''}",
+            f"- **Sắc thuế:** {sac_display}",
             f"- **Hiệu lực:** {doc.get('effective_status','')}",
         ]
         if doc.get("ai_summary"):
