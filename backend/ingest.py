@@ -45,6 +45,7 @@ from backend.common import (
     write_audit,
     serialize_row,
 )
+from backend.webhooks import fire_event
 
 log = logging.getLogger("vntaxdb.ingest")
 
@@ -210,6 +211,15 @@ async def upsert_document(
             actor_kind="user", actor_label=actor,
             new_values={"fields": list(params.keys())},
         )
+        try:
+            await fire_event(db, "document.updated", {
+                "source": table, "id": existing_id,
+                "so_hieu": record.get("so_hieu"),
+                "ten": record.get("ten"),
+                "changed_fields": list(params.keys()),
+            })
+        except Exception as _e:
+            log.warning("webhook fire_event update failed: %s", _e)
         return {"action": "updated", "id": existing_id, "table": table}
 
     insert_cols = [c for c in cols if c in record]
@@ -225,8 +235,18 @@ async def upsert_document(
     await write_audit(
         db, source=table, doc_id=new_id, event="created",
         actor_kind="user", actor_label=actor,
-        new_values={k: v for k, v in params.items() if k != "noi_dung"},
+        new_values={k: v for k, v in params.items() if k not in ("noi_dung", "noi_dung_day_du")},
     )
+    try:
+        await fire_event(db, "document.created", {
+            "source": table, "id": new_id,
+            "so_hieu": record.get("so_hieu"),
+            "ten": record.get("ten"),
+            "sac_thue": record.get("sac_thue"),
+            "source_url": record.get("source_url"),
+        })
+    except Exception as _e:
+        log.warning("webhook fire_event create failed: %s", _e)
     return {"action": "inserted", "id": new_id, "table": table}
 
 

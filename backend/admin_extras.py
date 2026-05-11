@@ -24,6 +24,7 @@ from backend.common import (
     write_audit,
     serialize_row,
 )
+from backend.webhooks import fire_event
 
 log = logging.getLogger("vntaxdb.admin_extras")
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
@@ -143,6 +144,28 @@ async def decide_review(
         actor_kind="user", actor_label=user.get("email", "admin"),
         new_values={"review_id": review_id, "fields": list(updates.keys())},
     )
+    # Emit specific events when high-signal fields changed
+    try:
+        if "effective_status" in updates:
+            await fire_event(db, "effective_status_changed", {
+                "source": target, "id": doc_id,
+                "new_status": updates["effective_status"],
+            })
+        if "supersedes_so_hieu" in updates or "superseded_by_so_hieu" in updates:
+            await fire_event(db, "document.superseded", {
+                "source": target, "id": doc_id,
+                "supersedes_so_hieu": updates.get("supersedes_so_hieu"),
+                "superseded_by_so_hieu": updates.get("superseded_by_so_hieu"),
+            })
+        if "is_anchor" in updates and updates["is_anchor"]:
+            await fire_event(db, "anchor_marked", {
+                "source": target, "id": doc_id,
+            })
+        await fire_event(db, "document.updated", {
+            "source": target, "id": doc_id, "changed_fields": list(updates.keys()),
+        })
+    except Exception as _e:
+        log.warning("webhook emit on review accept failed: %s", _e)
     return {"ok": True, "action": "accepted", "id": review_id, "fields_applied": list(updates.keys())}
 
 
@@ -254,6 +277,121 @@ async def revoke_key(
         actor_kind="user", actor_label=user.get("email", "admin"),
     )
     return {"ok": True, "id": key_id}
+
+
+# ----------------------------------------------------------------------
+# Backfill effective_status using heuristics
+# ----------------------------------------------------------------------
+@router.post("/backfill/effective-status")
+async def backfill_effective_status(
+    dry_run: bool = False,
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(require_admin),
+):
+    """Populate effective_status for documents + cong_van based on:
+      - het_hieu_luc_tu (if past today → expired)
+      - tinh_trang field text matching
+      - else 'in_force' as default (confidence 0.5 — admin can refine)
+    Idempotent: only updates rows where effective_status IS NULL.
+    """
+    result: dict = {"dry_run": dry_run, "documents": {}, "cong_van": {}}
+
+    for tbl in ("documents", "cong_van"):
+        # Detect available columns
+        col_q = await db.execute(text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_schema='public' AND table_name=:t
+        """), {"t": tbl})
+        cols = {row["column_name"] for row in col_q.mappings().all()}
+
+        has_het = "het_hieu_luc_tu" in cols
+        has_tinh_trang = "tinh_trang" in cols
+
+        # 1) Expired — het_hieu_luc_tu < today
+        n_expired = 0
+        if has_het:
+            q = text(f"""
+                {'SELECT COUNT(*) FROM ' if dry_run else 'UPDATE '} {tbl}
+                {'WHERE' if dry_run else 'SET effective_status=:s, effective_confidence=:c WHERE'}
+                effective_status IS NULL
+                AND het_hieu_luc_tu IS NOT NULL
+                AND het_hieu_luc_tu < CURRENT_DATE
+            """)
+            if dry_run:
+                r = await db.execute(q)
+                n_expired = r.scalar() or 0
+            else:
+                r = await db.execute(text(f"""
+                    UPDATE {tbl} SET effective_status='expired', effective_confidence=0.9
+                    WHERE effective_status IS NULL
+                      AND het_hieu_luc_tu IS NOT NULL
+                      AND het_hieu_luc_tu < CURRENT_DATE
+                """))
+                n_expired = r.rowcount or 0
+
+        # 2) Match tinh_trang text
+        n_by_tinh_trang = 0
+        if has_tinh_trang:
+            if dry_run:
+                r = await db.execute(text(f"""
+                    SELECT COUNT(*) FROM {tbl}
+                    WHERE effective_status IS NULL
+                      AND tinh_trang IS NOT NULL
+                      AND (
+                        tinh_trang ILIKE '%hết hiệu lực%'
+                        OR tinh_trang ILIKE '%expired%'
+                        OR tinh_trang ILIKE '%còn hiệu lực%'
+                        OR tinh_trang ILIKE '%in_force%'
+                        OR tinh_trang ILIKE '%đang áp dụng%'
+                      )
+                """))
+                n_by_tinh_trang = r.scalar() or 0
+            else:
+                r = await db.execute(text(f"""
+                    UPDATE {tbl}
+                    SET effective_status = CASE
+                        WHEN tinh_trang ILIKE '%hết hiệu lực%' OR tinh_trang ILIKE '%expired%' THEN 'expired'
+                        ELSE 'in_force'
+                    END,
+                    effective_confidence = 0.75
+                    WHERE effective_status IS NULL
+                      AND tinh_trang IS NOT NULL
+                      AND (
+                        tinh_trang ILIKE '%hết hiệu lực%'
+                        OR tinh_trang ILIKE '%expired%'
+                        OR tinh_trang ILIKE '%còn hiệu lực%'
+                        OR tinh_trang ILIKE '%in_force%'
+                        OR tinh_trang ILIKE '%đang áp dụng%'
+                      )
+                """))
+                n_by_tinh_trang = r.rowcount or 0
+
+        # 3) Default fallback for the rest — 'in_force' low confidence
+        if dry_run:
+            r = await db.execute(text(f"SELECT COUNT(*) FROM {tbl} WHERE effective_status IS NULL"))
+            n_default = r.scalar() or 0
+        else:
+            r = await db.execute(text(f"""
+                UPDATE {tbl}
+                SET effective_status='in_force', effective_confidence=0.5
+                WHERE effective_status IS NULL
+            """))
+            n_default = r.rowcount or 0
+
+        result[tbl] = {
+            "expired_by_date": n_expired,
+            "by_tinh_trang": n_by_tinh_trang,
+            "defaulted_in_force": n_default,
+        }
+
+    if not dry_run:
+        await db.commit()
+        await write_audit(
+            db, source="documents", doc_id=0, event="backfill_effective_status",
+            actor_kind="user", actor_label=user.get("email", "admin"),
+            new_values=result,
+        )
+    return result
 
 
 # ----------------------------------------------------------------------
