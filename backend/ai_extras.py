@@ -10,7 +10,7 @@ import logging
 import os
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Body
+from fastapi import APIRouter, Depends, HTTPException, Body, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -42,7 +42,7 @@ class CompareBody(BaseModel):
 # ----------------------------------------------------------------------
 # Auth dependency — any logged-in user (admin or paying user)
 # ----------------------------------------------------------------------
-async def require_user(request, db: AsyncSession = Depends(get_db)):
+async def require_user(request: Request, db: AsyncSession = Depends(get_db)):
     from main import get_current_user
     return await get_current_user(request, db)
 

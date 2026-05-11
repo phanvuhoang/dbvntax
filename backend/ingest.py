@@ -28,7 +28,7 @@ import re
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Body
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Body, Request
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -54,7 +54,7 @@ router = APIRouter(prefix="/api/v1/admin", tags=["ingest"])
 # ----------------------------------------------------------------------
 # Admin auth dependency — reuses main.get_current_user
 # ----------------------------------------------------------------------
-async def require_admin(request, db: AsyncSession = Depends(get_db)):
+async def require_admin(request: Request, db: AsyncSession = Depends(get_db)):
     from main import get_current_user
     user = await get_current_user(request, db)
     if user.get("role") != "admin":

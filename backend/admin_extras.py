@@ -12,7 +12,7 @@ import logging
 import secrets
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,7 +29,7 @@ log = logging.getLogger("vntaxdb.admin_extras")
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
 
-async def require_admin(request, db: AsyncSession = Depends(get_db)):
+async def require_admin(request: Request, db: AsyncSession = Depends(get_db)):
     from main import get_current_user
     user = await get_current_user(request, db)
     if user.get("role") != "admin":
