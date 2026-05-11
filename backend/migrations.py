@@ -79,6 +79,10 @@ MIGRATION_STATEMENTS: list[str] = [
     "ALTER TABLE cong_van ADD COLUMN IF NOT EXISTS quality_score SMALLINT",
     "ALTER TABLE cong_van ADD COLUMN IF NOT EXISTS is_anchor BOOLEAN DEFAULT FALSE",
     "ALTER TABLE cong_van ADD COLUMN IF NOT EXISTS importance SMALLINT DEFAULT 4",
+    "ALTER TABLE cong_van ADD COLUMN IF NOT EXISTS effective_status VARCHAR(30)",
+    "ALTER TABLE cong_van ADD COLUMN IF NOT EXISTS effective_confidence REAL",
+    "ALTER TABLE cong_van ADD COLUMN IF NOT EXISTS supersedes_so_hieu VARCHAR(200)",
+    "ALTER TABLE cong_van ADD COLUMN IF NOT EXISTS superseded_by_so_hieu VARCHAR(200)",
 
     # --- triggers on update_at (use a generic trigger function) ---
     """

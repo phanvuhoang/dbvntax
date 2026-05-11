@@ -81,24 +81,34 @@ async def require_sync_auth(
 async def _fetch_document(db: AsyncSession, source: str, doc_id: int) -> Optional[dict]:
     if source == "documents":
         q = text("""
-            SELECT id, so_hieu, ten, loai, sac_thue, ngay_ban_hanh, ngay_hieu_luc,
-                   co_quan_ban_hanh, nguoi_ky, ngay_cong_bao, so_cong_bao,
-                   tom_tat, noi_dung, tvpl_url, is_anchor,
+            SELECT id, so_hieu, ten, loai, sac_thue, ngay_ban_hanh,
+                   hieu_luc_tu AS ngay_hieu_luc,
+                   het_hieu_luc_tu,
+                   co_quan AS co_quan_ban_hanh,
+                   nguoi_ky, ngay_cong_bao, so_cong_bao,
+                   tom_tat, noi_dung,
+                   COALESCE(tvpl_url, link_tvpl) AS tvpl_url,
+                   is_anchor,
                    source, source_url, source_site, content_hash,
                    ai_summary, ai_tags, ai_implications, ai_review_status,
                    quality_score, effective_status, effective_confidence,
                    supersedes_so_hieu, superseded_by_so_hieu,
+                   tinh_trang, chu_de, keywords,
                    created_at, updated_at
             FROM documents WHERE id=:i
         """)
     elif source == "cong_van":
         q = text("""
-            SELECT id, so_hieu, ten, sac_thue, ngay_ban_hanh, co_quan_ban_hanh,
-                   noi_dung, tvpl_url, is_anchor, importance,
+            SELECT id, so_hieu, ten, sac_thue, ngay_ban_hanh,
+                   co_quan AS co_quan_ban_hanh,
+                   noi_dung_day_du AS noi_dung,
+                   link_nguon AS tvpl_url,
+                   is_anchor, importance,
                    source, source_url, source_site, content_hash,
                    ai_summary, ai_tags, ai_implications, ai_review_status,
                    quality_score, effective_status, effective_confidence,
                    supersedes_so_hieu, superseded_by_so_hieu,
+                   tinh_trang, chu_de, keywords,
                    created_at, updated_at
             FROM cong_van WHERE id=:i
         """)
@@ -178,20 +188,32 @@ async def list_documents(
             params["cdt"] = cursor_dt
             params["cid"] = cursor_id
         if sac_thue:
-            wheres.append("sac_thue = :sac")
+            wheres.append(":sac = ANY(sac_thue)")
             params["sac"] = sac_thue
 
         where_sql = (" WHERE " + " AND ".join(wheres)) if wheres else ""
-        cols_common = (
-            "id, so_hieu, ten, sac_thue, ngay_ban_hanh, co_quan_ban_hanh, "
-            "tvpl_url, is_anchor, source, source_url, source_site, content_hash, "
-            "ai_summary, ai_tags, ai_review_status, effective_status, "
-            "supersedes_so_hieu, superseded_by_so_hieu, created_at, updated_at"
-        )
-        extra = ", loai, ngay_hieu_luc, nguoi_ky, tom_tat" if src == "documents" else ", importance"
+        if src == "documents":
+            select_sql = (
+                "id, so_hieu, ten, loai, sac_thue, ngay_ban_hanh, "
+                "hieu_luc_tu AS ngay_hieu_luc, nguoi_ky, tom_tat, "
+                "co_quan AS co_quan_ban_hanh, "
+                "COALESCE(tvpl_url, link_tvpl) AS tvpl_url, is_anchor, "
+                "source, source_url, source_site, content_hash, "
+                "ai_summary, ai_tags, ai_review_status, effective_status, "
+                "supersedes_so_hieu, superseded_by_so_hieu, created_at, updated_at"
+            )
+        else:  # cong_van
+            select_sql = (
+                "id, so_hieu, ten, sac_thue, ngay_ban_hanh, importance, "
+                "co_quan AS co_quan_ban_hanh, "
+                "link_nguon AS tvpl_url, is_anchor, "
+                "source, source_url, source_site, content_hash, "
+                "ai_summary, ai_tags, ai_review_status, effective_status, "
+                "supersedes_so_hieu, superseded_by_so_hieu, created_at, updated_at"
+            )
 
         q = text(f"""
-            SELECT '{src}' AS _src, {cols_common}{extra}
+            SELECT '{src}' AS _src, {select_sql}
             FROM {src}
             {where_sql}
             ORDER BY updated_at NULLS LAST, id
@@ -311,10 +333,10 @@ async def get_chain(
         )
         predecessors.extend([serialize_row(dict(m)) for m in r.mappings().all()])
 
-    # Successor: X is superseded by this doc → find X where superseded_by = our so_hieu
+    # Successor: X is superseded by this doc → find X where supersedes/superseded_by points back
     if so_hieu:
         r = await db.execute(
-            text(f"SELECT id, so_hieu, ten, ngay_ban_hanh, effective_status FROM {source} WHERE supersedes_so_hieu=:s OR superseded_by_so_hieu=:s"),
+            text(f"SELECT id, so_hieu, ten, ngay_ban_hanh, effective_status FROM {source} WHERE (supersedes_so_hieu=:s OR superseded_by_so_hieu=:s)"),
             {"s": so_hieu},
         )
         for m in r.mappings().all():

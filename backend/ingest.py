@@ -164,16 +164,37 @@ async def upsert_document(
         if row:
             existing_id = row["id"]
 
+    # Map API field names → actual DB column names per table.
+    # API uses canonical names (co_quan_ban_hanh, noi_dung, tvpl_url, ngay_hieu_luc).
+    # documents uses: co_quan, hieu_luc_tu, link_tvpl OR tvpl_url, noi_dung
+    # cong_van  uses: co_quan, link_nguon, noi_dung_day_du
+    def remap(table_name: str, rec: dict) -> dict:
+        out = dict(rec)
+        if "co_quan_ban_hanh" in out:
+            out["co_quan"] = out.pop("co_quan_ban_hanh")
+        if table_name == "documents":
+            if "ngay_hieu_luc" in out:
+                out["hieu_luc_tu"] = out.pop("ngay_hieu_luc")
+            # 'noi_dung' and 'tvpl_url' already match in documents
+        else:  # cong_van
+            if "noi_dung" in out:
+                out["noi_dung_day_du"] = out.pop("noi_dung")
+            if "tvpl_url" in out:
+                out["link_nguon"] = out.pop("tvpl_url")
+        return out
+
+    record = remap(table, record)
+
     if table == "documents":
         cols = [
-            "so_hieu", "ten", "loai", "sac_thue", "ngay_ban_hanh", "ngay_hieu_luc",
-            "co_quan_ban_hanh", "nguoi_ky", "tom_tat", "noi_dung", "tvpl_url",
+            "so_hieu", "ten", "loai", "sac_thue", "ngay_ban_hanh", "hieu_luc_tu",
+            "co_quan", "nguoi_ky", "tom_tat", "noi_dung", "tvpl_url",
             "source", "source_url", "source_site", "content_hash", "quality_score",
         ]
     else:
         cols = [
-            "so_hieu", "ten", "sac_thue", "ngay_ban_hanh", "co_quan_ban_hanh",
-            "noi_dung", "tvpl_url", "importance",
+            "so_hieu", "ten", "sac_thue", "ngay_ban_hanh", "co_quan",
+            "noi_dung_day_du", "link_nguon", "importance",
             "source", "source_url", "source_site", "content_hash", "quality_score",
         ]
 

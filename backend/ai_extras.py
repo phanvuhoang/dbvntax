@@ -53,10 +53,19 @@ async def require_user(request: Request, db: AsyncSession = Depends(get_db)):
 async def _load_doc(db: AsyncSession, source: str, doc_id: int) -> Optional[dict]:
     if source not in ("documents", "cong_van"):
         return None
-    cols = "id, so_hieu, ten, sac_thue, ngay_ban_hanh, co_quan_ban_hanh, noi_dung, ai_summary, ai_tags, ai_implications"
     if source == "documents":
-        cols += ", loai, tom_tat"
-    r = await db.execute(text(f"SELECT {cols} FROM {source} WHERE id=:i"), {"i": doc_id})
+        sql = (
+            "SELECT id, so_hieu, ten, sac_thue, ngay_ban_hanh, "
+            "co_quan AS co_quan_ban_hanh, noi_dung, tom_tat, loai, "
+            "ai_summary, ai_tags, ai_implications FROM documents WHERE id=:i"
+        )
+    else:
+        sql = (
+            "SELECT id, so_hieu, ten, sac_thue, ngay_ban_hanh, "
+            "co_quan AS co_quan_ban_hanh, noi_dung_day_du AS noi_dung, "
+            "ai_summary, ai_tags, ai_implications FROM cong_van WHERE id=:i"
+        )
+    r = await db.execute(text(sql), {"i": doc_id})
     row = r.mappings().first()
     return dict(row) if row else None
 
