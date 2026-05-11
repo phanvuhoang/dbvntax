@@ -2,11 +2,13 @@ import { useState } from 'react';
 import type { Document, CongVan } from '../types';
 import { formatDate } from '../api';
 import DocCard from './DocCard';
+import SkeletonCards from './Skeleton';
+import EmptyState from './EmptyState';
 
 type SortOption = 'relevance' | 'date_desc' | 'date_asc';
 
 function sortItems(items: (Document | CongVan)[], sort: SortOption): (Document | CongVan)[] {
-  if (sort === 'relevance') return items; // already sorted by backend
+  if (sort === 'relevance') return items;
   return [...items].sort((a, b) => {
     const da = a.ngay_ban_hanh ?? '';
     const db = b.ngay_ban_hanh ?? '';
@@ -46,7 +48,7 @@ function Pagination({ page, totalPages, onPageChange }: {
         <button
           disabled={page <= 1}
           onClick={() => onPageChange(page - 1)}
-          className="px-2 py-1 text-xs border border-gray-200 rounded text-gray-600 hover:border-primary hover:text-primary disabled:opacity-40 disabled:cursor-default"
+          className="px-2 py-1 text-xs border border-gray-200 rounded text-gray-600 hover:border-primary hover:text-primary disabled:opacity-40 disabled:cursor-default transition"
         >←</button>
         {pages.map((p, i) =>
           p === '...' ? (
@@ -66,7 +68,7 @@ function Pagination({ page, totalPages, onPageChange }: {
         <button
           disabled={page >= totalPages}
           onClick={() => onPageChange(page + 1)}
-          className="px-2 py-1 text-xs border border-gray-200 rounded text-gray-600 hover:border-primary hover:text-primary disabled:opacity-40 disabled:cursor-default"
+          className="px-2 py-1 text-xs border border-gray-200 rounded text-gray-600 hover:border-primary hover:text-primary disabled:opacity-40 disabled:cursor-default transition"
         >→</button>
       </div>
       <div className="flex items-center gap-1">
@@ -151,21 +153,22 @@ export default function DocList({
 
   if (isLoading) {
     return (
-      <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
-        <svg className="animate-spin h-5 w-5 mr-2 text-primary" viewBox="0 0 24 24">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-        </svg>
-        Đang tải...
+      <div className="flex-1 overflow-hidden">
+        <div className="px-3 py-2 text-xs text-gray-400 border-b border-gray-100 bg-white">
+          Đang tải...
+        </div>
+        <SkeletonCards count={6} />
       </div>
     );
   }
 
   if (!items.length) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center text-gray-400 text-sm gap-2 p-8">
-        <span className="text-4xl">📭</span>
-        <span>Không tìm thấy kết quả</span>
+      <div className="flex-1 flex flex-col">
+        <div className="px-3 py-2 text-xs text-gray-400 border-b border-gray-100 bg-white">
+          0 kết quả
+        </div>
+        <EmptyState />
       </div>
     );
   }
@@ -174,7 +177,9 @@ export default function DocList({
     <div className="flex flex-col flex-1 overflow-hidden">
       {/* Results header */}
       <div className="px-3 py-2 text-xs text-gray-500 border-b border-gray-100 bg-white flex-shrink-0 flex items-center justify-between gap-1">
-        <span className="shrink-0">{total} {tab === 'congvan' ? 'công văn' : 'kết quả'}</span>
+        <span className="shrink-0 font-medium">
+          {total} {tab === 'congvan' ? 'công văn' : 'kết quả'}
+        </span>
         <div className="flex items-center gap-1 ml-auto">
           <select
             value={sort}
@@ -210,14 +215,14 @@ export default function DocList({
               <div
                 key={cv.id}
                 onClick={() => !deleteMode && onSelect(cv)}
-                className={`px-3 py-2.5 border-b border-gray-100 cursor-pointer transition border-l-[3px]
+                className={`px-3 py-3 border-b border-gray-100 cursor-pointer transition-all duration-150 border-l-[3px] group
                   ${cv.id === selectedId && !deleteMode
-                    ? 'border-l-primary bg-primary-light'
+                    ? 'border-l-primary bg-primary-light shadow-sm'
                     : deleteMode && selectedIds.has(cv.id)
                       ? 'border-l-red-400 bg-red-50'
-                      : 'border-l-transparent hover:bg-gray-50'}`}
+                      : 'border-l-transparent hover:bg-gray-50 hover:shadow-sm hover:border-l-gray-200'}`}
               >
-                <div className="flex justify-between items-start">
+                <div className="flex justify-between items-start gap-2">
                   <div className="flex items-baseline gap-2 min-w-0">
                     {deleteMode && (
                       <input
@@ -228,14 +233,14 @@ export default function DocList({
                         className="accent-red-500 shrink-0"
                       />
                     )}
-                    <span className="text-primary font-semibold text-sm shrink-0">{cv.so_hieu || '—'}</span>
+                    <span className="font-mono text-primary font-semibold text-xs shrink-0">{cv.so_hieu || '—'}</span>
                     {cv.ngay_ban_hanh && (
                       <span className="text-[11px] text-gray-400 shrink-0">{formatDate(cv.ngay_ban_hanh)}</span>
                     )}
                   </div>
-                  <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-medium shrink-0 ml-1">CV</span>
+                  <span className="text-[10px] bg-blue-50 text-blue-600 border border-blue-100 px-1.5 py-0.5 rounded font-medium shrink-0 ml-1">CV</span>
                 </div>
-                <p className="text-sm text-gray-700 mt-1 line-clamp-2 leading-snug select-text">{cv.ten}</p>
+                <p className="text-sm text-gray-700 mt-1.5 line-clamp-2 leading-snug font-medium select-text">{cv.ten}</p>
                 {cv.co_quan && <p className="text-xs text-gray-400 mt-1 select-text">{cv.co_quan}</p>}
               </div>
             );

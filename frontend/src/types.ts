@@ -35,6 +35,11 @@ export interface Document {
   p3?: string;
   doc_type?: string;
   importance?: number;
+  is_anchor?: boolean;
+  co_quan?: string;
+  nguoi_ky?: string;
+  hieu_luc_tu?: string;
+  het_hieu_luc_tu?: string;
 }
 
 export interface CongVan {

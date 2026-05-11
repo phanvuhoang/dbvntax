@@ -23,3 +23,12 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #aaa; }
+
+/* Hide scrollbar for filter chip rows on mobile */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}

@@ -13,4 +13,6 @@ pydantic==2.9.2
 aiofiles==24.1.0
 beautifulsoup4==4.12.3
 anthropic>=0.39.0
+pypdf==5.1.0
 # rebuilt Mon Mar 30 00:58:05 +08 2026
+# canonical v1 layer added Mon May 11 18:30 +07 2026

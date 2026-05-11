@@ -103,11 +103,32 @@ async def lifespan(app: FastAPI):
             log.info("DB migrations applied")
     except Exception as e:
         log.error(f"DB migration failed (non-fatal): {e}")
+    # --- New canonical-layer migrations (idempotent) ---
+    try:
+        from backend.migrations import run_migrations
+        await run_migrations(engine)
+        log.info("Canonical migrations applied")
+    except Exception as e:
+        log.error(f"Canonical migrations failed (non-fatal): {e}")
     yield
     await engine.dispose()
 
 app = FastAPI(title="VNTaxDB", version="2.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+# --- New canonical / ingest / AI-extras / admin-extras routers -----
+try:
+    from backend import canonical as _canonical_router
+    from backend import ingest as _ingest_router
+    from backend import ai_extras as _ai_extras_router
+    from backend import admin_extras as _admin_extras_router
+    app.include_router(_canonical_router.router)
+    app.include_router(_ingest_router.router)
+    app.include_router(_ai_extras_router.router)
+    app.include_router(_admin_extras_router.router)
+    log.info("Canonical v1 routers loaded")
+except Exception as _e:
+    log.error(f"Failed to load v1 routers: {_e}")
 
 def create_token(user_id: int, email: str, role: str) -> str:
     payload = {"sub": str(user_id), "email": email, "role": role,
